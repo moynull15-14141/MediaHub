@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { extractMetadata, getDownloadHistory, saveToHistory } from '../services/media.service';
+import { extractMetadata, getDownloadHistory, saveToHistory, getYouTubeCookiePath, normalizeUrl } from '../services/media.service';
 import youtubedl from 'youtube-dl-exec';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -7,13 +7,14 @@ import * as path from 'path';
 import * as os from 'os';
 
 const buildYtdlpDownloadOptions = () => {
-  const cookiePath = process.env.YOUTUBE_COOKIES_FILE;
+  const cookiePath = getYouTubeCookiePath();
   const options: Record<string, any> = {
     noWarnings: true,
     noCheckCertificates: true,
     noPlaylist: true,
     jsRuntimes: 'node',
     quiet: true,
+    preferFreeFormats: true,
     addHeader: [
       'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Accept-Language: en-US,en;q=0.9',
@@ -29,28 +30,6 @@ const buildYtdlpDownloadOptions = () => {
   return options;
 };
 
-const normalizeUrl = (url: string) => {
-  try {
-    const parsed = new URL(url);
-    if (parsed.hostname.endsWith('youtube.com')) {
-      if (parsed.pathname.startsWith('/shorts/')) {
-        const videoId = parsed.pathname.split('/')[2];
-        if (videoId) {
-          return `https://www.youtube.com/watch?v=${videoId}`;
-        }
-      }
-    }
-    if (parsed.hostname === 'youtu.be') {
-      const videoId = parsed.pathname.slice(1);
-      if (videoId) {
-        return `https://www.youtube.com/watch?v=${videoId}`;
-      }
-    }
-  } catch {
-    // Keep original if normalization fails.
-  }
-  return url;
-};
 
 const runYtdlp = async (url: string, options: Record<string, any>) => {
   const normalized = normalizeUrl(url);

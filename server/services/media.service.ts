@@ -1,11 +1,12 @@
 import youtubedl from 'youtube-dl-exec';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 
 // Simulated DB for Prototype
 const historyStore: any[] = [];
 
-const normalizeUrl = (url: string) => {
+export const normalizeUrl = (url: string) => {
   try {
     const parsed = new URL(url);
     if (parsed.hostname.endsWith('youtube.com')) {
@@ -28,8 +29,28 @@ const normalizeUrl = (url: string) => {
   return url;
 };
 
-const buildYtdlpOptions = () => {
+export const getYouTubeCookiePath = () => {
   const cookiePath = process.env.YOUTUBE_COOKIES_FILE;
+  const rawCookieData = process.env.YOUTUBE_COOKIES;
+
+  if (cookiePath && fs.existsSync(cookiePath)) {
+    return cookiePath;
+  }
+
+  if (cookiePath) {
+    console.warn('YOUTUBE_COOKIES_FILE is set but file does not exist:', cookiePath);
+  }
+
+  if (rawCookieData) {
+    const tempPath = path.join(os.tmpdir(), 'mediahub-youtube-cookies.txt');
+    fs.writeFileSync(tempPath, rawCookieData, 'utf8');
+    return tempPath;
+  }
+
+  return undefined;
+};
+
+const buildYtdlpOptions = () => {
   const options: Record<string, any> = {
     dumpSingleJson: true,
     skipDownload: true,
@@ -47,6 +68,7 @@ const buildYtdlpOptions = () => {
     'extractor-args': 'youtube:player_client=desktop',
   };
 
+  const cookiePath = getYouTubeCookiePath();
   if (cookiePath) {
     options.cookies = cookiePath;
   }
@@ -215,7 +237,19 @@ export const extractMetadata = async (url: string): Promise<MediaMetadata | null
       stderr: e.stderr,
       stdout: e.stdout
     });
-    throw e;
+
+    const stderr = typeof e.stderr === 'string' ? e.stderr : '';
+    if (stderr.includes('Sign in to confirm you\'re not a bot')) {
+      throw new Error('YouTube is blocking this request. Provide valid cookies via YOUTUBE_COOKIES_FILE or use a different video.');
+    }
+    if (stderr.includes('Video unavailable')) {
+      throw new Error('This YouTube video is unavailable or blocked. Verify the URL or try another video.');
+    }
+    if (stderr.includes('This video is age restricted')) {
+      throw new Error('This YouTube video is age restricted and requires authentication/cookies.');
+    }
+
+    throw new Error(e.message || 'Unknown extraction error');
   }
 };
 
