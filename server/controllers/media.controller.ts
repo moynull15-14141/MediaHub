@@ -160,11 +160,17 @@ export const downloadMedia = async (req: Request, res: Response) => {
 
     const options: Record<string, any> = {
       output: outputPath,
-      format: isAudioOnly ? (formatArg === 'best' ? 'bestaudio' : formatArg) : (formatArg === 'best' ? 'bestvideo+bestaudio/best' : formatArg),
+      format: isAudioOnly
+        ? (formatArg === 'best' ? 'bestaudio' : formatArg)
+        : (formatArg === 'best' ? 'bestvideo+bestaudio/best' : formatArg),
       mergeOutputFormat: isAudioOnly ? undefined : outputExt,
-      extractAudio: isAudioOnly,
-      audioFormat: isAudioOnly ? outputExt : undefined,
       audioQuality: isAudioOnly ? '192K' : undefined,
+      ...(isAudioOnly
+        ? {
+            extractAudio: true,
+            audioFormat: outputExt,
+          }
+        : {}),
     };
 
     await runYtdlp(url, options);
