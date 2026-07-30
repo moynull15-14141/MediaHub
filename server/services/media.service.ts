@@ -8,11 +8,13 @@ const historyStore: any[] = [];
 const runYtdlpJson = (url: string) => {
   return youtubedl(url, {
     dumpSingleJson: true,
+    skipDownload: true,
     noWarnings: true,
-    noCheckCertificate: true,
+    noCheckCertificates: true,
     noPlaylist: true,
+    callHome: false,
+    preferFreeFormats: true,
     jsRuntimes: 'node',
-    remoteComponents: 'ejs:github',
     // suppress output to keep logs clean
     quiet: true,
   });

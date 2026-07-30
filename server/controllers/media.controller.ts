@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { extractMetadata, getDownloadHistory, saveToHistory } from '../services/media.service';
 import youtubedl from 'youtube-dl-exec';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -10,10 +11,10 @@ const runYtdlp = async (url: string, options: Record<string, any>) => {
   await youtubedl(url, {
     ...options,
     noWarnings: true,
-    noCheckCertificate: true,
+    noCheckCertificates: true,
     noPlaylist: true,
+    callHome: false,
     jsRuntimes: 'node',
-    remoteComponents: 'ejs:github',
     quiet: true,
   });
 };

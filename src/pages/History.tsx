@@ -10,8 +10,12 @@ export default function History() {
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
 
+  const apiBase = import.meta.env.DEV
+    ? ''
+    : (import.meta.env.VITE_API_URL || 'https://mediahub-e6qr.onrender.com');
+
   useEffect(() => {
-    fetch('/api/media/history')
+    fetch(`${apiBase}/api/media/history`)
       .then((res) => res.json())
       .then((data) => {
         setHistory(data);
@@ -20,7 +24,7 @@ export default function History() {
       .catch(() => {
         setLoading(false);
       });
-  }, []);
+  }, [apiBase]);
 
   const filteredHistory = useMemo(() => {
     return history.filter((item) => {
