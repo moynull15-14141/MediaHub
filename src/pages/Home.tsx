@@ -14,6 +14,10 @@ export default function Home() {
   const [metadata, setMetadata] = useState<MediaMetadata | null>(null);
   const { push } = useToast();
 
+  const apiBase = import.meta.env.DEV
+    ? ''
+    : (import.meta.env.VITE_API_URL || 'https://mediahub-e6qr.onrender.com');
+
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!url) return;
@@ -23,7 +27,7 @@ export default function Home() {
     setMetadata(null);
 
     try {
-      const res = await fetch('/api/media/analyze', {
+      const res = await fetch(`${apiBase}/api/media/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
@@ -55,7 +59,7 @@ export default function Home() {
       ext: format.ext,
     });
     const a = document.createElement('a');
-    a.href = `/api/media/download?${params.toString()}`;
+    a.href = `${apiBase}/api/media/download?${params.toString()}`;
     a.download = '';
     document.body.appendChild(a);
     a.click();
@@ -73,7 +77,7 @@ export default function Home() {
     });
 
     const a = document.createElement('a');
-    a.href = `/api/media/download/audio?${params.toString()}`;
+    a.href = `${apiBase}/api/media/download/audio?${params.toString()}`;
     a.download = '';
     document.body.appendChild(a);
     a.click();
