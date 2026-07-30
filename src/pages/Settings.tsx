@@ -1,121 +1,113 @@
+import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { Bell, BrushCleaning, Clock3, Database, Globe2, HardDrive, Info, Lock, ShieldCheck, Trash2, Video, Volume2 } from 'lucide-react';
+import { Clock3, Moon, Sun, ShieldCheck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/src/components/ui/card';
 import { Button } from '@/src/components/ui/button';
 
-const sections = [
-  {
-    title: 'General',
-    icon: Globe2,
-    rows: [
-      { label: 'Theme', value: 'Dark Premium' },
-      { label: 'Language', value: 'English' },
-      { label: 'Timezone', value: 'UTC+6' },
-      { label: 'Date Format', value: 'DD/MM/YYYY' },
-    ],
-  },
-  {
-    title: 'Downloader',
-    icon: Video,
-    rows: [
-      { label: 'Preferred Video Quality', value: '1080p' },
-      { label: 'Preferred Audio Quality', value: '320kbps' },
-      { label: 'Preferred Download Format', value: 'MP4' },
-      { label: 'Auto Download', value: 'Enabled' },
-      { label: 'Concurrent Downloads', value: '3' },
-    ],
-  },
-  {
-    title: 'History',
-    icon: Clock3,
-    rows: [
-      { label: 'Enable History', value: 'On' },
-      { label: 'Auto Delete History', value: '30 Days' },
-    ],
-  },
-  {
-    title: 'Storage',
-    icon: HardDrive,
-    rows: [
-      { label: 'Cache Size', value: '184 MB' },
-      { label: 'Storage Usage', value: '2.4 GB' },
-    ],
-  },
-  {
-    title: 'Privacy',
-    icon: Lock,
-    rows: [
-      { label: 'Analytics Toggle', value: 'Enabled' },
-      { label: 'Delete All Data', value: 'Available' },
-    ],
-  },
-  {
-    title: 'About',
-    icon: Info,
-    rows: [
-      { label: 'Application Name', value: 'MediaHub PRO' },
-      { label: 'Version', value: '1.0.0' },
-      { label: 'Build Number', value: '20260729' },
-      { label: 'License', value: 'Enterprise' },
-      { label: 'Support', value: 'support@mediahub.pro' },
-      { label: 'Contact', value: '+880 1700 000000' },
-      { label: 'Privacy Policy', value: 'Updated 2026' },
-      { label: 'Terms of Service', value: 'Updated 2026' },
-    ],
-  },
-];
+const themeKey = 'mediahub-theme';
+const historyDaysKey = 'mediahub-history-days';
 
 export default function Settings() {
+  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const [autoDeleteDays, setAutoDeleteDays] = useState(30);
+  const [saved, setSaved] = useState(false);
+
+  const applyTheme = (mode: 'light' | 'dark') => {
+    document.documentElement.dataset.theme = mode;
+    setTheme(mode);
+  };
+
+  useEffect(() => {
+    const storedTheme = (localStorage.getItem(themeKey) as 'light' | 'dark') || 'dark';
+    const storedDays = Number(localStorage.getItem(historyDaysKey)) || 30;
+    setAutoDeleteDays(storedDays);
+    applyTheme(storedTheme);
+  }, []);
+
+  const handleSave = () => {
+    localStorage.setItem(themeKey, theme);
+    localStorage.setItem(historyDaysKey, String(autoDeleteDays));
+    setSaved(true);
+    window.setTimeout(() => setSaved(false), 1800);
+  };
+
   return (
     <div className="space-y-6">
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight text-white">Settings</h1>
-          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">Fine-tune your downloader workflow, storage preferences, and privacy controls from one polished workspace.</p>
+          <h1 className="text-3xl font-semibold tracking-tight text-[var(--text-primary)]">Settings</h1>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-[var(--text-muted)]">Choose your UI mode and keep history organized by device / IP for your downloads.</p>
         </div>
         <div className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-sm font-medium text-emerald-300">Live configuration</div>
       </motion.div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        {sections.map((section, index) => {
-          const Icon = section.icon;
-          return (
-            <motion.div key={section.title} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}>
-              <Card className="border-white/10 bg-white/[0.03] shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
-                <CardHeader className="pb-4">
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-300">
-                      <Icon className="h-5 w-5" />
-                    </div>
-                    <CardTitle className="text-lg text-white">{section.title}</CardTitle>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  {section.rows.map((row) => (
-                    <div key={row.label} className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/20 px-4 py-3">
-                      <span className="text-sm text-slate-400">{row.label}</span>
-                      <span className="text-sm font-medium text-white">{row.value}</span>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-            </motion.div>
-          );
-        })}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}>
+          <Card className="theme-surface border border-[var(--border)] shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] text-[var(--text-muted)]">
+                  <Sun className="h-5 w-5" />
+                </div>
+                <CardTitle className="text-lg text-[var(--text)]">Theme</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-3">
+                <Button variant={theme === 'light' ? 'default' : 'outline'} onClick={() => applyTheme('light')} className="rounded-2xl px-4 py-2">
+                  <Sun className="mr-2 h-4 w-4" /> Day mode
+                </Button>
+                <Button variant={theme === 'dark' ? 'default' : 'outline'} onClick={() => applyTheme('dark')} className="rounded-2xl px-4 py-2">
+                  <Moon className="mr-2 h-4 w-4" /> Night mode
+                </Button>
+              </div>
+              <p className="text-sm text-[var(--text-muted)]">Your selected theme is saved locally and will persist across sessions.</p>
+            </CardContent>
+          </Card>
+        </motion.div>
+
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.04 }}>
+          <Card className="theme-surface border border-[var(--border)] shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+            <CardHeader className="pb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] text-[var(--text-muted)]">
+                  <Clock3 className="h-5 w-5" />
+                </div>
+                <CardTitle className="text-lg text-[var(--text)]">History</CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm text-[var(--text-muted)]">Auto delete history after</label>
+                <input
+                  type="number"
+                  min={7}
+                  max={365}
+                  value={autoDeleteDays}
+                  onChange={(e) => setAutoDeleteDays(Number(e.target.value))}
+                  className="w-24 rounded-2xl border border-[var(--border)] bg-[var(--input-bg)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-blue-500"
+                />
+              </div>
+              <p className="text-sm text-[var(--text-muted)]">History is stored with device and IP context so you can track downloads per device or location.</p>
+            </CardContent>
+          </Card>
+        </motion.div>
       </div>
 
-      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-        <Card className="border-white/10 bg-gradient-to-br from-blue-600/10 via-transparent to-cyan-600/10">
+      <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.08 }}>
+        <Card className="theme-surface border border-[var(--border)] shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
           <CardContent className="flex flex-col gap-4 p-6 md:flex-row md:items-center md:justify-between">
             <div>
-              <div className="flex items-center gap-2 text-sm font-semibold text-white"><ShieldCheck className="h-4 w-4" /> Premium control center</div>
-              <p className="mt-2 max-w-2xl text-sm text-slate-400">You can manage downloads, retention, and privacy without leaving the app experience.</p>
+              <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text)]"><ShieldCheck className="h-4 w-4" /> Device-aware history</div>
+              <p className="mt-2 max-w-2xl text-sm text-[var(--text-muted)]">Your download history will now include device type and client IP metadata for better auditability.</p>
             </div>
             <div className="flex flex-wrap gap-3">
-              <Button variant="outline" className="border-white/10 bg-white/5 text-white hover:bg-white/10">Clear History</Button>
-              <Button variant="outline" className="border-white/10 bg-white/5 text-white hover:bg-white/10">Clear Cache</Button>
-              <Button className="bg-white text-black hover:bg-slate-200">Save Changes</Button>
+              <Button variant="default" className="px-6 py-3" onClick={handleSave}>Save settings</Button>
+              <Button variant="outline" className="border-[var(--border)] bg-[var(--panel-bg)] text-[var(--text-primary)] hover:bg-[var(--surface)]" onClick={() => applyTheme(theme)}>
+                Apply now
+              </Button>
             </div>
+            {saved && <div className="rounded-full bg-emerald-500/15 px-3 py-1 text-sm text-emerald-300">Settings saved</div>}
           </CardContent>
         </Card>
       </motion.div>

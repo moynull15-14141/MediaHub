@@ -8,6 +8,9 @@ import { AppLayout } from './components/layout/AppLayout';
 import Home from './pages/Home';
 import History from './pages/History';
 import Settings from './pages/Settings';
+import Login from './pages/Login';
+import Register from './pages/Register';
+import CookieUpload from './pages/CookieUpload';
 
 export default function App() {
   return (
@@ -17,7 +20,10 @@ export default function App() {
           <Route index element={<Home />} />
           <Route path="history" element={<History />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="cookies" element={<CookieUpload />} />
         </Route>
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
       </Routes>
     </BrowserRouter>
   );

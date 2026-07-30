@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import mediaRoutes from './server/routes/media.routes';
+import authRoutes from './server/routes/auth.routes';
 
 async function startServer() {
   const app = express();
@@ -23,6 +24,7 @@ async function startServer() {
   });
 
   // API Routes
+  app.use('/api/auth', authRoutes);
   app.use('/api/media', mediaRoutes);
 
   app.get('/api/health', (req, res) => {

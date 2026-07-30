@@ -2,6 +2,7 @@ import youtubedl from 'youtube-dl-exec';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { findUserById, verifyAuthToken } from './user.service';
 
 // Simulated DB for Prototype
 const historyStore: any[] = [];
@@ -50,7 +51,16 @@ export const getYouTubeCookiePath = () => {
   return undefined;
 };
 
-const buildYtdlpOptions = () => {
+export const getUserCookiePathFromToken = (token?: string) => {
+  if (!token) return undefined;
+  const payload = verifyAuthToken(token);
+  if (!payload) return undefined;
+  const user = findUserById(payload.sub);
+  if (!user) return undefined;
+  return user.cookiePath;
+};
+
+const buildYtdlpOptions = (cookiePath?: string) => {
   const options: Record<string, any> = {
     dumpSingleJson: true,
     skipDownload: true,
@@ -68,16 +78,23 @@ const buildYtdlpOptions = () => {
     'extractor-args': 'youtube:player_client=desktop',
   };
 
-  const cookiePath = getYouTubeCookiePath();
-  if (cookiePath) {
-    options.cookies = cookiePath;
+  const resolvedCookiePath = cookiePath || getYouTubeCookiePath();
+  if (resolvedCookiePath) {
+    options.cookies = resolvedCookiePath;
   }
 
   return options;
 };
 
-const runYtdlpJson = (url: string) => {
-  return youtubedl(normalizeUrl(url), buildYtdlpOptions());
+const runYtdlpJson = (url: string, cookiePath?: string) => {
+  return youtubedl(normalizeUrl(url), buildYtdlpOptions(cookiePath));
+};
+
+export const runYtdlp = async (url: string, options: Record<string, any>, cookiePath?: string) => {
+  return youtubedl(normalizeUrl(url), {
+    ...buildYtdlpOptions(cookiePath),
+    ...options,
+  });
 };
 
 export interface MediaMetadata {
@@ -118,7 +135,7 @@ function formatDuration(seconds: number) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-export const extractMetadata = async (url: string): Promise<MediaMetadata | null> => {
+export const extractMetadata = async (url: string, authToken?: string): Promise<MediaMetadata | null> => {
   try {
     const isDirectFile = url.match(/\.(mp4|mp3|webm|m4a|ogg|mov|avi|mkv|wav|aac|flac)$/i);
     
@@ -151,7 +168,8 @@ export const extractMetadata = async (url: string): Promise<MediaMetadata | null
     } else {
       console.log('Attempting to extract metadata for:', url);
     }
-    const output: any = await runYtdlpJson(normalizedUrl);
+    const cookiePath = getUserCookiePathFromToken(authToken);
+    const output: any = await runYtdlpJson(normalizedUrl, cookiePath);
     console.log('Metadata extraction successful:', output.title);
     
     // Process formats
