@@ -1,0 +1,11 @@
+services:
+  mediahub:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mediahub_downloader
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+    restart: always
