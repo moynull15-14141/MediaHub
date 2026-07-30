@@ -1,32 +1,20 @@
 import { Request, Response } from 'express';
 import { extractMetadata, getDownloadHistory, saveToHistory } from '../services/media.service';
-import { spawn } from 'child_process';
+import youtubedl from 'youtube-dl-exec';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-const runYtdlp = (args: string[], cwd?: string) => {
-  return new Promise<void>((resolve, reject) => {
-    const ytdlpBinary = process.env.YTDLP_PATH || 'yt-dlp';
-    console.log('Running yt-dlp with binary:', ytdlpBinary);
-    console.log('yt-dlp command:', ytdlpBinary, args.join(' '));
-    const subprocess = spawn(ytdlpBinary, args, {
-      cwd: cwd ?? process.cwd(),
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let stderr = '';
-    subprocess.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    subprocess.on('error', (error) => reject(error));
-    subprocess.on('close', (code) => {
-      if (code !== 0) {
-        return reject(new Error(`yt-dlp exited with code ${code}: ${stderr.trim()}`));
-      }
-      resolve();
-    });
+const runYtdlp = async (url: string, options: Record<string, any>) => {
+  console.log('Running youtube-dl-exec with url:', url, 'options:', options);
+  await youtubedl(url, {
+    ...options,
+    noWarnings: true,
+    noCheckCertificate: true,
+    noPlaylist: true,
+    jsRuntimes: 'node',
+    remoteComponents: 'ejs:github',
+    quiet: true,
   });
 };
 
@@ -87,13 +75,15 @@ export const downloadAudio = async (req: Request, res: Response) => {
     const filename = `${safeTitle}.${outputExt}`;
     const outputPath = path.join(tempDir, filename);
 
-    const jsRuntimeArgs = /(youtube\.com|youtu\.be)/i.test(url)
-      ? ['--js-runtimes', 'node', '--remote-components', 'ejs:github']
-      : [];
-    const defaultArgs = [...jsRuntimeArgs, '--no-warnings', '--no-check-certificate', '--no-playlist', '-o', outputPath];
-    const args = ['-f', 'bestaudio', '--extract-audio', '--audio-format', outputExt, '--audio-quality', '192K', ...defaultArgs];
+    const options: Record<string, any> = {
+      output: outputPath,
+      format: 'bestaudio',
+      extractAudio: true,
+      audioFormat: outputExt,
+      audioQuality: '192K',
+    };
 
-    await runYtdlp([url, ...args]);
+    await runYtdlp(url, options);
 
     if (!fs.existsSync(outputPath)) {
       throw new Error('Downloaded file missing after yt-dlp finished');
@@ -145,33 +135,16 @@ export const downloadMedia = async (req: Request, res: Response) => {
     const outputPath = path.join(tempDir, filename);
     const formatArg = formatId || 'best';
 
-    const jsRuntimeArgs = /(youtube\.com|youtu\.be)/i.test(url)
-      ? ['--js-runtimes', 'node', '--remote-components', 'ejs:github']
-      : [];
-    const defaultArgs = [...jsRuntimeArgs, '--no-warnings', '--no-check-certificate', '--no-playlist', '-o', outputPath];
+    const options: Record<string, any> = {
+      output: outputPath,
+      format: isAudioOnly ? (formatArg === 'best' ? 'bestaudio' : formatArg) : (formatArg === 'best' ? 'bestvideo+bestaudio/best' : formatArg),
+      mergeOutputFormat: isAudioOnly ? undefined : outputExt,
+      extractAudio: isAudioOnly,
+      audioFormat: isAudioOnly ? outputExt : undefined,
+      audioQuality: isAudioOnly ? '192K' : undefined,
+    };
 
-    let args: string[];
-    if (isAudioOnly) {
-      const audioFormat = audioExtensions.includes(outputExt) ? outputExt : 'mp3';
-      const formatSpec = formatArg === 'best' ? 'bestaudio' : formatArg;
-      args = ['-f', formatSpec, '--extract-audio', '--audio-format', audioFormat, '--audio-quality', '192K', ...defaultArgs];
-    } else {
-      let formatSpec: string;
-      const isCombinedFormat = formatHasVideo && formatHasAudio;
-
-      if (formatArg === 'best') {
-        formatSpec = 'bestvideo+bestaudio/best';
-      } else if (isCombinedFormat) {
-        formatSpec = formatArg;
-      } else if (formatArg.includes('+') || formatArg.includes('/')) {
-        formatSpec = formatArg;
-      } else {
-        formatSpec = `${formatArg}+bestaudio/best`;
-      }
-      args = ['-f', formatSpec, '--merge-output-format', outputExt, ...defaultArgs];
-    }
-
-    await runYtdlp([url, ...args]);
+    await runYtdlp(url, options);
 
     if (!fs.existsSync(outputPath)) {
       throw new Error('Downloaded file missing after yt-dlp finished');

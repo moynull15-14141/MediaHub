@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import youtubedl from 'youtube-dl-exec';
 import fs from 'fs';
 import path from 'path';
 
@@ -6,42 +6,15 @@ import path from 'path';
 const historyStore: any[] = [];
 
 const runYtdlpJson = (url: string) => {
-  return new Promise<any>((resolve, reject) => {
-    const ytdlpBinary = process.env.YTDLP_PATH || 'yt-dlp';
-    const args = [
-      '--dump-single-json',
-      '--no-warnings',
-      '--no-check-certificate',
-      '--no-playlist',
-      '--js-runtimes', 'node',
-      '--remote-components', 'ejs:github',
-      url,
-    ];
-
-    const subprocess = spawn(ytdlpBinary, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    let stdout = '';
-    let stderr = '';
-
-    subprocess.stdout.on('data', (chunk) => {
-      stdout += chunk.toString();
-    });
-
-    subprocess.stderr.on('data', (chunk) => {
-      stderr += chunk.toString();
-    });
-
-    subprocess.on('error', (error) => reject(error));
-
-    subprocess.on('close', (code) => {
-      if (code !== 0) {
-        return reject(new Error(`yt-dlp exited with code ${code}: ${stderr.trim()}`));
-      }
-      try {
-        resolve(JSON.parse(stdout));
-      } catch (error) {
-        reject(new Error(`Failed to parse yt-dlp output: ${error instanceof Error ? error.message : String(error)}\n${stderr}`));
-      }
-    });
+  return youtubedl(url, {
+    dumpSingleJson: true,
+    noWarnings: true,
+    noCheckCertificate: true,
+    noPlaylist: true,
+    jsRuntimes: 'node',
+    remoteComponents: 'ejs:github',
+    // suppress output to keep logs clean
+    quiet: true,
   });
 };
 
