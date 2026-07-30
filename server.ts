@@ -9,6 +9,18 @@ async function startServer() {
 
   app.use(express.json());
 
+  // CORS support for deployed frontend
+  app.use((req, res, next) => {
+    const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
+    res.header('Access-Control-Allow-Origin', allowedOrigin);
+    res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(204);
+    }
+    next();
+  });
+
   // API Routes
   app.use('/api/media', mediaRoutes);
 
