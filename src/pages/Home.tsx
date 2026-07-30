@@ -33,11 +33,12 @@ export default function Home() {
         body: JSON.stringify({ url }),
       });
 
+      const body = await res.json().catch(() => null);
       if (!res.ok) {
-        throw new Error('We could not analyze this link. Please verify the URL and try again.');
+        throw new Error(body?.error || 'We could not analyze this link. Please verify the URL and try again.');
       }
 
-      const data = await res.json();
+      const data = body;
       setMetadata(data);
       push({ title: 'Analysis complete', description: 'Your media details are ready to review.' });
     } catch (err: any) {

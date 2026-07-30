@@ -5,19 +5,57 @@ import path from 'path';
 // Simulated DB for Prototype
 const historyStore: any[] = [];
 
-const runYtdlpJson = (url: string) => {
-  return youtubedl(url, {
+const normalizeUrl = (url: string) => {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.endsWith('youtube.com')) {
+      if (parsed.pathname.startsWith('/shorts/')) {
+        const videoId = parsed.pathname.split('/')[2];
+        if (videoId) {
+          return `https://www.youtube.com/watch?v=${videoId}`;
+        }
+      }
+    }
+    if (parsed.hostname === 'youtu.be') {
+      const videoId = parsed.pathname.slice(1);
+      if (videoId) {
+        return `https://www.youtube.com/watch?v=${videoId}`;
+      }
+    }
+  } catch {
+    // Keep original URL if normalization fails.
+  }
+  return url;
+};
+
+const buildYtdlpOptions = () => {
+  const cookiePath = process.env.YOUTUBE_COOKIES_FILE;
+  const options: Record<string, any> = {
     dumpSingleJson: true,
     skipDownload: true,
     noWarnings: true,
     noCheckCertificates: true,
     noPlaylist: true,
-    callHome: false,
     preferFreeFormats: true,
     jsRuntimes: 'node',
-    // suppress output to keep logs clean
     quiet: true,
-  });
+    addHeader: [
+      'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language: en-US,en;q=0.9',
+      'Referer: https://www.youtube.com/',
+    ],
+    'extractor-args': 'youtube:player_client=desktop',
+  };
+
+  if (cookiePath) {
+    options.cookies = cookiePath;
+  }
+
+  return options;
+};
+
+const runYtdlpJson = (url: string) => {
+  return youtubedl(normalizeUrl(url), buildYtdlpOptions());
 };
 
 export interface MediaMetadata {
@@ -85,8 +123,13 @@ export const extractMetadata = async (url: string): Promise<MediaMetadata | null
       };
     }
 
-    console.log('Attempting to extract metadata for:', url);
-    const output: any = await runYtdlpJson(url);
+    const normalizedUrl = normalizeUrl(url);
+    if (normalizedUrl !== url) {
+      console.log('Normalized YouTube URL:', url, '->', normalizedUrl);
+    } else {
+      console.log('Attempting to extract metadata for:', url);
+    }
+    const output: any = await runYtdlpJson(normalizedUrl);
     console.log('Metadata extraction successful:', output.title);
     
     // Process formats

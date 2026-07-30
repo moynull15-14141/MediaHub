@@ -6,16 +6,58 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-const runYtdlp = async (url: string, options: Record<string, any>) => {
-  console.log('Running youtube-dl-exec with url:', url, 'options:', options);
-  await youtubedl(url, {
-    ...options,
+const buildYtdlpDownloadOptions = () => {
+  const cookiePath = process.env.YOUTUBE_COOKIES_FILE;
+  const options: Record<string, any> = {
     noWarnings: true,
     noCheckCertificates: true,
     noPlaylist: true,
-    callHome: false,
     jsRuntimes: 'node',
     quiet: true,
+    addHeader: [
+      'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept-Language: en-US,en;q=0.9',
+      'Referer: https://www.youtube.com/',
+    ],
+    'extractor-args': 'youtube:player_client=desktop',
+  };
+
+  if (cookiePath) {
+    options.cookies = cookiePath;
+  }
+
+  return options;
+};
+
+const normalizeUrl = (url: string) => {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.endsWith('youtube.com')) {
+      if (parsed.pathname.startsWith('/shorts/')) {
+        const videoId = parsed.pathname.split('/')[2];
+        if (videoId) {
+          return `https://www.youtube.com/watch?v=${videoId}`;
+        }
+      }
+    }
+    if (parsed.hostname === 'youtu.be') {
+      const videoId = parsed.pathname.slice(1);
+      if (videoId) {
+        return `https://www.youtube.com/watch?v=${videoId}`;
+      }
+    }
+  } catch {
+    // Keep original if normalization fails.
+  }
+  return url;
+};
+
+const runYtdlp = async (url: string, options: Record<string, any>) => {
+  const normalized = normalizeUrl(url);
+  console.log('Running youtube-dl-exec with url:', normalized, 'options:', options);
+  await youtubedl(normalized, {
+    ...buildYtdlpDownloadOptions(),
+    ...options,
   });
 };
 
@@ -42,7 +84,8 @@ export const analyzeMedia = async (req: Request, res: Response) => {
     
     res.status(404).json({ error: 'Could not extract media metadata' });
   } catch (error: any) {
-    res.status(500).json({ error: error.message || 'Internal server error during analysis' });
+    console.error('Analyze exception:', error);
+    res.status(500).json({ error: error.stderr || error.message || 'Internal server error during analysis' });
   }
 };
 
@@ -104,7 +147,7 @@ export const downloadAudio = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Audio download exception:', error);
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Internal server error during audio download' });
+      res.status(500).json({ error: error.stderr || error.message || 'Internal server error during audio download' });
     }
   }
 };
@@ -165,7 +208,7 @@ export const downloadMedia = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error('Download exception:', error);
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Internal server error during download' });
+      res.status(500).json({ error: error.stderr || error.message || 'Internal server error during download' });
     }
   }
 };
