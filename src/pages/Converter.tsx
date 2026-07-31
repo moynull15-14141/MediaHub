@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { EmptyState } from '@/src/components/ui/empty-state';
 import { Button } from '@/src/components/ui/button';
+import { Input } from '@/src/components/ui/input';
 import { useToast } from '@/src/components/ui/toast-provider';
 import { useAuth } from '@/src/components/auth/AuthContext';
 import { getApiBase } from '@/src/lib/api';
@@ -161,6 +162,8 @@ export default function Converter() {
   const [audioMode, setAudioMode] = useState<AudioMode>('keep');
   const [preset, setPreset] = useState<Preset>('balanced');
   const [fps, setFps] = useState('keep');
+  const [trimStart, setTrimStart] = useState('');
+  const [trimEnd, setTrimEnd] = useState('');
 
   const [isStarting, setIsStarting] = useState(false);
   const [activeJob, setActiveJob] = useState<ConversionJob | null>(null);
@@ -224,6 +227,8 @@ export default function Converter() {
     setUploadError(null);
     setActiveJob(null);
     setLogLines([]);
+    setTrimStart('');
+    setTrimEnd('');
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -271,6 +276,14 @@ export default function Converter() {
 
   const handleConvert = async () => {
     if (!uploadedJob) return;
+
+    const trimStartSeconds = trimStart.trim() ? Number(trimStart) : undefined;
+    const trimEndSeconds = trimEnd.trim() ? Number(trimEnd) : undefined;
+    if (trimEndSeconds !== undefined && trimEndSeconds <= (trimStartSeconds || 0)) {
+      push({ title: 'Invalid trim range', description: 'Trim end must be after trim start.' });
+      return;
+    }
+
     setIsStarting(true);
     try {
       const res = await fetch(`${apiBase}/api/converter/start`, {
@@ -286,6 +299,8 @@ export default function Converter() {
           audioMode,
           preset,
           fps,
+          trimStartSeconds,
+          trimEndSeconds,
         }),
       });
       const body = await res.json().catch(() => null);
@@ -458,6 +473,35 @@ export default function Converter() {
                   <div className="space-y-2">
                     <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-secondary)]">Encode preset</p>
                     <OptionToggle options={PRESETS} value={preset} onChange={setPreset} disabled={isExtractMode} />
+                  </div>
+
+                  <div className="space-y-2 md:col-span-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-secondary)]">Trim (optional)</p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <Input
+                        type="number"
+                        min={0}
+                        step="any"
+                        placeholder="Start (seconds)"
+                        value={trimStart}
+                        onChange={(e) => setTrimStart(e.target.value)}
+                        className="h-10 w-40"
+                      />
+                      <span className="text-xs text-[var(--text-muted)]">to</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="any"
+                        placeholder="End (seconds)"
+                        value={trimEnd}
+                        onChange={(e) => setTrimEnd(e.target.value)}
+                        className="h-10 w-40"
+                      />
+                      {uploadedJob.durationSeconds && (
+                        <span className="text-xs text-[var(--text-muted)]">Full length: {formatDuration(uploadedJob.durationSeconds)}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-[var(--text-muted)]">Leave both blank to keep the full video.</p>
                   </div>
                 </div>
 

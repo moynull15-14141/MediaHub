@@ -44,8 +44,8 @@ const findOwnedJob = async (jobId: string, owner: RequestOwner) => {
   return job;
 };
 
-export const parseConversionOptions = (body: any): ConversionOptions => {
-  const { outputFormat, quality, videoCodec, audioCodec, fps, audioMode, preset } = body || {};
+export const parseConversionOptions = (body: any, sourceDurationSeconds: number | null): ConversionOptions => {
+  const { outputFormat, quality, videoCodec, audioCodec, fps, audioMode, preset, trimStartSeconds, trimEndSeconds } = body || {};
 
   if (!OUTPUT_FORMATS.includes(outputFormat)) throw new ConverterError(`Invalid outputFormat: ${outputFormat}`, 400);
   if (!QUALITIES.includes(quality)) throw new ConverterError(`Invalid quality: ${quality}`, 400);
@@ -61,7 +61,33 @@ export const parseConversionOptions = (body: any): ConversionOptions => {
     parsedFps = numericFps;
   }
 
-  return { outputFormat, quality, videoCodec, audioCodec, fps: parsedFps, audioMode, preset };
+  let parsedTrimStart: number | undefined;
+  let parsedTrimEnd: number | undefined;
+  if (trimStartSeconds !== undefined || trimEndSeconds !== undefined) {
+    parsedTrimStart = Number(trimStartSeconds ?? 0);
+    parsedTrimEnd = Number(trimEndSeconds ?? sourceDurationSeconds ?? NaN);
+    if (!Number.isFinite(parsedTrimStart) || parsedTrimStart < 0) {
+      throw new ConverterError(`Invalid trimStartSeconds: ${trimStartSeconds}`, 400);
+    }
+    if (!Number.isFinite(parsedTrimEnd) || parsedTrimEnd <= parsedTrimStart) {
+      throw new ConverterError(`Invalid trimEndSeconds: ${trimEndSeconds}`, 400);
+    }
+    if (sourceDurationSeconds !== null && parsedTrimEnd > sourceDurationSeconds) {
+      parsedTrimEnd = sourceDurationSeconds;
+    }
+  }
+
+  return {
+    outputFormat,
+    quality,
+    videoCodec,
+    audioCodec,
+    fps: parsedFps,
+    audioMode,
+    preset,
+    trimStartSeconds: parsedTrimStart,
+    trimEndSeconds: parsedTrimEnd,
+  };
 };
 
 export interface UploadedFileInfo {
@@ -126,11 +152,11 @@ const persistProgress = async (jobId: string, percent: number | null) => {
 };
 
 export const startConversion = async (jobId: string, body: any, owner: RequestOwner) => {
-  const options = parseConversionOptions(body);
   const job = await findOwnedJob(jobId, owner);
   if (job.status !== 'QUEUED' || job.startedAt) {
     throw new ConverterError(`Job cannot be started from status ${job.status}`, 409);
   }
+  const options = parseConversionOptions(body, job.durationSeconds);
 
   const inputExt = `.${job.inputFormat}`;
   const localInputPath = getInputPath(jobId, inputExt);
@@ -162,10 +188,15 @@ export const startConversion = async (jobId: string, body: any, owner: RequestOw
     data: { status: 'CONVERTING', startedAt: new Date(), outputFormat: resolvedOutputFormat, progress: 0 },
   });
 
+  const effectiveDurationSeconds =
+    options.trimStartSeconds !== undefined && options.trimEndSeconds !== undefined
+      ? options.trimEndSeconds - options.trimStartSeconds
+      : job.durationSeconds;
+
   conversionQueue.enqueue({
     jobId,
     run: async (registerCancel) => {
-      const { child, done } = runFfmpegWithProgress(args, job.durationSeconds, (update) => {
+      const { child, done } = runFfmpegWithProgress(args, effectiveDurationSeconds, (update) => {
         void persistProgress(jobId, update.percent);
       });
       registerCancel(() => killGracefully(child));

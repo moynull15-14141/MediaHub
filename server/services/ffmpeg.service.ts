@@ -15,6 +15,8 @@ export interface ConversionOptions {
   fps: 'keep' | number;
   audioMode: AudioMode;
   preset: EncodePreset;
+  trimStartSeconds?: number;
+  trimEndSeconds?: number;
 }
 
 export interface ProbeResult {
@@ -225,7 +227,14 @@ export const buildFfmpegArgs = (params: {
   availableEncoders: Set<string>;
 }): string[] => {
   const { inputPath, outputPath, inputVideoCodec, inputAudioCodec, options, availableEncoders } = params;
-  const args: string[] = ['-y', '-i', inputPath];
+  const args: string[] = ['-y'];
+  if (options.trimStartSeconds) {
+    args.push('-ss', String(options.trimStartSeconds));
+  }
+  args.push('-i', inputPath);
+  if (options.trimEndSeconds !== undefined && options.trimEndSeconds > (options.trimStartSeconds || 0)) {
+    args.push('-t', String(options.trimEndSeconds - (options.trimStartSeconds || 0)));
+  }
 
   if (options.audioMode === 'extract') {
     args.push('-vn');
