@@ -35,6 +35,13 @@ export interface ImageProcessOptions {
   watermarkPosition?: WatermarkPosition;
   watermarkScale?: number;
   watermarkPadding?: number;
+
+  // -100..100, 0 = no change
+  brightness?: number;
+  contrast?: number;
+  saturation?: number;
+  // -180..180 degrees, 0 = no change
+  hue?: number;
 }
 
 export interface ProbeResult {
@@ -242,6 +249,21 @@ export const processImage = async (
       fit: options.fit || 'cover',
       withoutEnlargement: false,
     });
+  }
+
+  if (options.brightness || options.saturation || options.hue) {
+    pipeline = pipeline.modulate({
+      brightness: options.brightness ? 1 + options.brightness / 100 : undefined,
+      saturation: options.saturation ? 1 + options.saturation / 100 : undefined,
+      hue: options.hue || undefined,
+    });
+  }
+  if (options.contrast) {
+    // sharp has no direct "contrast" knob - the standard formula scales
+    // pixel values around the midpoint (128) by a contrast factor.
+    const c = options.contrast * 2.55; // slider is -100..100, formula wants -255..255
+    const factor = (259 * (c + 255)) / (255 * (259 - c));
+    pipeline = pipeline.linear(factor, 128 * (1 - factor));
   }
 
   if (options.watermarkText || options.watermarkImagePath) {

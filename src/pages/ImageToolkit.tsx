@@ -179,6 +179,7 @@ export default function ImageToolkit() {
   const { push } = useToast();
   const apiBase = getApiBase();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const watermarkFileInputRef = useRef<HTMLInputElement>(null);
 
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -196,7 +197,7 @@ export default function ImageToolkit() {
   const [resizeMode, setResizeMode] = useState<'none' | 'dimensions' | 'percent'>('none');
   const [resizeWidth, setResizeWidth] = useState('');
   const [resizeHeight, setResizeHeight] = useState('');
-  const [lockAspect, setLockAspect] = useState(true);
+  const [lockAspect, setLockAspect] = useState(false);
   const [resizePercent, setResizePercent] = useState('100');
   const [fit, setFit] = useState<Fit>('cover');
 
@@ -216,6 +217,11 @@ export default function ImageToolkit() {
   const [watermarkPosition, setWatermarkPosition] = useState<WatermarkPosition>('bottom-right');
   const [watermarkScale, setWatermarkScale] = useState(25);
   const [watermarkPadding, setWatermarkPadding] = useState(16);
+
+  const [brightness, setBrightness] = useState(0);
+  const [contrast, setContrast] = useState(0);
+  const [saturation, setSaturation] = useState(0);
+  const [hue, setHue] = useState(0);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [resultJob, setResultJob] = useState<ImageJob | null>(null);
@@ -257,6 +263,43 @@ export default function ImageToolkit() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Editing options are per-image: carrying over a crop/watermark/resize set
+  // up for one image onto the next (different dimensions, different intent)
+  // is a common source of "the output looks wrong" confusion, so every
+  // option resets whenever the active image changes.
+  const resetEditOptions = () => {
+    setOutputFormat('jpeg');
+    setQuality(80);
+    setProgressive(false);
+    setLossless(false);
+    setPreserveMetadata(false);
+    setColorSpace('');
+    setResizeMode('none');
+    setResizeWidth('');
+    setResizeHeight('');
+    setResizePercent('100');
+    setFit('cover');
+    setCropPreset('free');
+    setCropX(''); setCropY(''); setCropWidth(''); setCropHeight('');
+    setRotate(0);
+    setFlipHorizontal(false);
+    setFlipVertical(false);
+    setWatermarkText('');
+    setWatermarkImageFile(null);
+    if (watermarkFileInputRef.current) watermarkFileInputRef.current.value = '';
+    setWatermarkOpacity(80);
+    setWatermarkPosition('bottom-right');
+    setWatermarkScale(25);
+    setWatermarkPadding(16);
+    setBrightness(0);
+    setContrast(0);
+    setSaturation(0);
+    setHue(0);
+    setResultJob(null);
+    setResultUrl(null);
+    setMetadata(null);
+  };
+
   const uploadFile = async (file: File) => {
     const ext = `.${file.name.split('.').pop()?.toLowerCase() || ''}`;
     if (!ACCEPTED_EXTENSIONS.includes(ext)) {
@@ -285,9 +328,7 @@ export default function ImageToolkit() {
         setActiveIndex(next.length - 1);
         return next;
       });
-      setResultJob(null);
-      setResultUrl(null);
-      setMetadata(null);
+      resetEditOptions();
       push({ title: 'Upload complete', description: `${uploaded.originalFilename} is ready to edit.` });
     } catch (err: any) {
       setUploadError(err.message || 'Upload failed. Please try a different file.');
@@ -388,6 +429,10 @@ export default function ImageToolkit() {
           formData.append('watermarkScale', String(watermarkScale / 100));
           formData.append('watermarkPadding', String(watermarkPadding));
         }
+        if (brightness) formData.append('brightness', String(brightness));
+        if (contrast) formData.append('contrast', String(contrast));
+        if (saturation) formData.append('saturation', String(saturation));
+        if (hue) formData.append('hue', String(hue));
       }
 
       const res = await fetch(`${apiBase}/api/image/process`, { method: 'POST', body: formData, credentials: 'include' });
@@ -497,7 +542,7 @@ export default function ImageToolkit() {
             {images.map((img, index) => (
               <button
                 key={img.jobId}
-                onClick={() => { setActiveIndex(index); setResultJob(null); setResultUrl(null); setMetadata(null); }}
+                onClick={() => { setActiveIndex(index); resetEditOptions(); }}
                 className={`relative flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-medium transition ${
                   activeIndex === index ? 'border-blue-500/50 bg-blue-500/10 text-blue-300' : 'border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)]'
                 }`}
@@ -629,10 +674,56 @@ export default function ImageToolkit() {
               </div>
             </div>
 
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-secondary)]">Color adjustments</p>
+                {(brightness || contrast || saturation || hue) ? (
+                  <button type="button" className="text-[10px] text-blue-400 hover:underline" onClick={() => { setBrightness(0); setContrast(0); setSaturation(0); setHue(0); }}>Reset</button>
+                ) : null}
+              </div>
+              {[
+                { label: 'Brightness', value: brightness, set: setBrightness },
+                { label: 'Contrast', value: contrast, set: setContrast },
+                { label: 'Saturation', value: saturation, set: setSaturation },
+              ].map((row) => (
+                <div key={row.label}>
+                  <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)]">
+                    <span>{row.label}</span>
+                    <span>{row.value > 0 ? `+${row.value}` : row.value}</span>
+                  </div>
+                  <input type="range" min={-100} max={100} value={row.value} onChange={(e) => row.set(Number(e.target.value))} className="w-full accent-blue-500" />
+                </div>
+              ))}
+              <div>
+                <div className="flex items-center justify-between text-[10px] text-[var(--text-muted)]">
+                  <span>Hue</span>
+                  <span>{hue > 0 ? `+${hue}` : hue}°</span>
+                </div>
+                <input type="range" min={-180} max={180} value={hue} onChange={(e) => setHue(Number(e.target.value))} className="w-full accent-blue-500" />
+              </div>
+            </div>
+
             <div className="space-y-2">
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--text-secondary)]">Watermark</p>
               <Input placeholder="Watermark text (optional)" value={watermarkText} onChange={(e) => setWatermarkText(e.target.value)} className="h-10" />
-              <input type="file" accept="image/*" onChange={(e) => setWatermarkImageFile(e.target.files?.[0] || null)} className="text-xs text-[var(--text-secondary)]" />
+              <div className="flex items-center gap-2">
+                <input
+                  ref={watermarkFileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => setWatermarkImageFile(e.target.files?.[0] || null)}
+                  className="text-xs text-[var(--text-secondary)]"
+                />
+                {watermarkImageFile && (
+                  <button
+                    type="button"
+                    className="flex items-center gap-1 rounded-full border border-[var(--border)] bg-[var(--surface)] px-2 py-1 text-[10px] text-[var(--text-secondary)] hover:text-rose-300"
+                    onClick={() => { setWatermarkImageFile(null); if (watermarkFileInputRef.current) watermarkFileInputRef.current.value = ''; }}
+                  >
+                    <X className="h-3 w-3" /> {watermarkImageFile.name}
+                  </button>
+                )}
+              </div>
               {(watermarkText || watermarkImageFile) && (
                 <div className="grid grid-cols-2 gap-3">
                   <div>

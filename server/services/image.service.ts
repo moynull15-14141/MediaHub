@@ -96,7 +96,7 @@ export const parseImageProcessOptions = (body: any): ImageProcessOptions => {
     cropX, cropY, cropWidth, cropHeight,
     rotate, flipHorizontal, flipVertical,
     watermarkText, watermarkOpacity, watermarkPosition, watermarkScale, watermarkPadding,
-    colorSpace,
+    colorSpace, brightness, contrast, saturation, hue,
   } = body || {};
 
   if (!OUTPUT_FORMATS.includes(outputFormat)) throw new ImageError(`Invalid outputFormat: ${outputFormat}`, 400);
@@ -114,6 +114,15 @@ export const parseImageProcessOptions = (body: any): ImageProcessOptions => {
   if (colorSpace !== undefined && !COLOR_SPACES.includes(colorSpace)) {
     throw new ImageError(`Invalid colorSpace: ${colorSpace}`, 400);
   }
+  const checkRange = (value: any, name: string, min: number, max: number) => {
+    if (value === undefined || value === '') return;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < min || n > max) throw new ImageError(`Invalid ${name}: ${value}`, 400);
+  };
+  checkRange(brightness, 'brightness', -100, 100);
+  checkRange(contrast, 'contrast', -100, 100);
+  checkRange(saturation, 'saturation', -100, 100);
+  checkRange(hue, 'hue', -180, 180);
 
   const toNumberOrUndefined = (v: any) => (v === undefined || v === '' ? undefined : Number(v));
   const toBool = (v: any) => v === true || v === 'true';
@@ -148,6 +157,10 @@ export const parseImageProcessOptions = (body: any): ImageProcessOptions => {
     watermarkScale: toNumberOrUndefined(watermarkScale),
     watermarkPadding: toNumberOrUndefined(watermarkPadding),
     colorSpace,
+    brightness: toNumberOrUndefined(brightness),
+    contrast: toNumberOrUndefined(contrast),
+    saturation: toNumberOrUndefined(saturation),
+    hue: toNumberOrUndefined(hue),
   };
 };
 
