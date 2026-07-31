@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { findUserById, verifyAuthToken } from './user.service';
+import { RequestOwner, ownerMatches } from '../lib/auth-helpers';
 
 // Simulated DB for Prototype
 const historyStore: any[] = [];
@@ -330,11 +331,11 @@ export const extractMetadata = async (url: string, authToken?: string): Promise<
   }
 };
 
-export const saveToHistory = (record: any) => {
-  historyStore.unshift(record);
-  if (historyStore.length > 100) historyStore.pop();
+export const saveToHistory = (record: any, owner: RequestOwner) => {
+  historyStore.unshift({ ...record, userId: owner.userId ?? null, anonId: owner.userId ? null : owner.anonId });
+  if (historyStore.length > 500) historyStore.pop();
 };
 
-export const getDownloadHistory = () => {
-  return historyStore;
+export const getDownloadHistory = (owner: RequestOwner) => {
+  return historyStore.filter((record) => ownerMatches(record, owner));
 };

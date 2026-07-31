@@ -18,7 +18,7 @@ import {
   EncodePreset,
 } from './ffmpeg.service';
 import { conversionQueue } from './conversion-queue.service';
-import { RequestOwner } from '../lib/auth-helpers';
+import { RequestOwner, ownerMatches } from '../lib/auth-helpers';
 
 const DOWNLOAD_TTL_HOURS = Number(process.env.CONVERTER_DOWNLOAD_TTL_HOURS) || 24;
 
@@ -34,9 +34,6 @@ export class ConverterError extends Error {
     super(message);
   }
 }
-
-const ownerMatches = (job: { userId: string | null; anonId: string | null }, owner: RequestOwner): boolean =>
-  owner.userId ? job.userId === owner.userId : job.userId === null && job.anonId === owner.anonId;
 
 const findOwnedJob = async (jobId: string, owner: RequestOwner) => {
   const job = await prisma.conversionJob.findUnique({ where: { id: jobId } });

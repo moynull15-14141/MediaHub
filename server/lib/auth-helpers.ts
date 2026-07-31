@@ -52,3 +52,6 @@ export const getRequestOwner = (req: Request, res: Response): RequestOwner => {
 
   return { userId, anonId };
 };
+
+export const ownerMatches = (record: { userId?: string | null; anonId?: string | null }, owner: RequestOwner): boolean =>
+  owner.userId ? record.userId === owner.userId : !record.userId && record.anonId === owner.anonId;

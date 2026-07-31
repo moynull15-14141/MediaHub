@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { extractMetadata, getDownloadHistory, saveToHistory, normalizeUrl, getUserCookiePathFromToken, resolveDirectMediaUrl } from '../services/media.service';
+import { getRequestOwner } from '../lib/auth-helpers';
 import youtubedl from 'youtube-dl-exec';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -80,19 +81,22 @@ export const analyzeMedia = async (req: Request, res: Response) => {
     const { deviceType, platform } = getDeviceInfo(req);
 
     if (metadata) {
-      saveToHistory({
-        id: crypto.randomUUID(),
-        url,
-        title: metadata.title,
-        status: 'completed',
-        date: new Date().toISOString(),
-        clientIp,
-        device: deviceType,
-        platform,
-      });
+      saveToHistory(
+        {
+          id: crypto.randomUUID(),
+          url,
+          title: metadata.title,
+          status: 'completed',
+          date: new Date().toISOString(),
+          clientIp,
+          device: deviceType,
+          platform,
+        },
+        getRequestOwner(req, res),
+      );
       return res.json(metadata);
     }
-    
+
     res.status(404).json({ error: 'Could not extract media metadata' });
   } catch (error: any) {
     console.error('Analyze exception:', error);
@@ -102,7 +106,7 @@ export const analyzeMedia = async (req: Request, res: Response) => {
 
 export const getHistory = (req: Request, res: Response) => {
   try {
-    const history = getDownloadHistory();
+    const history = getDownloadHistory(getRequestOwner(req, res));
     res.json(history);
   } catch (error) {
     res.status(500).json({ error: 'Internal server error retrieving history' });

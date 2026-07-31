@@ -15,7 +15,7 @@ export default function History() {
   const apiBase = getApiBase();
 
   useEffect(() => {
-    fetch(`${apiBase}/api/media/history`)
+    fetch(`${apiBase}/api/media/history`, { credentials: 'include' })
       .then((res) => res.json())
       .then((data) => {
         setHistory(data);
