@@ -108,7 +108,7 @@ export interface MediaMetadata {
     quality: string;
     ext: string;
     size: string;
-    type: 'video' | 'audio';
+    type: 'video' | 'audio' | 'image';
     hasVideo: boolean;
     hasAudio: boolean;
     height?: number;
@@ -117,6 +117,12 @@ export interface MediaMetadata {
 }
 
 const audioExtensions = ['mp3', 'aac', 'm4a', 'wav', 'ogg', 'flac'];
+const imageExtensions = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'svg'];
+
+export const resolveDirectMediaUrl = async (url: string, cookiePath?: string): Promise<string | undefined> => {
+  const output: any = await runYtdlpJson(url, cookiePath);
+  return output.url || output.formats?.[output.formats.length - 1]?.url;
+};
 
 function formatBytes(bytes: number) {
   if (bytes === 0) return '0 B';
@@ -137,8 +143,32 @@ function formatDuration(seconds: number) {
 
 export const extractMetadata = async (url: string, authToken?: string): Promise<MediaMetadata | null> => {
   try {
+    const isDirectImage = url.match(/\.(jpe?g|png|gif|webp|bmp|svg)$/i);
+
+    if (isDirectImage) {
+      const ext = url.split('.').pop()?.toLowerCase() || 'jpg';
+      return {
+        title: `Direct Image File (${ext.toUpperCase()})`,
+        thumbnail: url,
+        duration: 'N/A',
+        author: 'Direct Source',
+        fileSize: 'Unknown',
+        formats: [
+          {
+            formatId: 'best',
+            quality: 'Original',
+            ext,
+            size: 'Original',
+            type: 'image',
+            hasVideo: false,
+            hasAudio: false,
+          },
+        ],
+      };
+    }
+
     const isDirectFile = url.match(/\.(mp4|mp3|webm|m4a|ogg|mov|avi|mkv|wav|aac|flac)$/i);
-    
+
     if (isDirectFile) {
       const ext = url.split('.').pop()?.toLowerCase() || 'unknown';
       const isAudioDirect = audioExtensions.includes(ext);
@@ -171,7 +201,32 @@ export const extractMetadata = async (url: string, authToken?: string): Promise<
     const cookiePath = getUserCookiePathFromToken(authToken);
     const output: any = await runYtdlpJson(normalizedUrl, cookiePath);
     console.log('Metadata extraction successful:', output.title);
-    
+
+    // Some pages (e.g. a Wikipedia file page) aren't videos at all - yt-dlp's
+    // generic extractor just resolves the page's main image. Treat that as
+    // an image result instead of forcing it through the video/audio pipeline.
+    const resolvedExt = String(output.ext || '').toLowerCase();
+    if (imageExtensions.includes(resolvedExt)) {
+      return {
+        title: output.title || 'Direct Image File',
+        thumbnail: output.thumbnail || output.url || normalizedUrl,
+        duration: 'N/A',
+        author: output.uploader || output.channel || output.extractor || 'Unknown',
+        fileSize: formatBytes(output.filesize || output.filesize_approx || 0) === '0 B' ? 'Unknown' : formatBytes(output.filesize || output.filesize_approx || 0),
+        formats: [
+          {
+            formatId: 'best',
+            quality: 'Original',
+            ext: resolvedExt,
+            size: 'Original',
+            type: 'image',
+            hasVideo: false,
+            hasAudio: false,
+          },
+        ],
+      };
+    }
+
     // Process formats
     let formats = (output.formats || [])
       .filter((f: any) => f.vcodec !== 'none' || f.acodec !== 'none')
@@ -257,6 +312,7 @@ export const extractMetadata = async (url: string, authToken?: string): Promise<
     });
 
     const stderr = typeof e.stderr === 'string' ? e.stderr : '';
+    const combined = `${stderr}\n${e.message || ''}`;
     if (stderr.includes('Sign in to confirm you\'re not a bot')) {
       throw new Error('YouTube is blocking this request. Provide valid cookies via YOUTUBE_COOKIES_FILE or use a different video.');
     }
@@ -265,6 +321,9 @@ export const extractMetadata = async (url: string, authToken?: string): Promise<
     }
     if (stderr.includes('This video is age restricted')) {
       throw new Error('This YouTube video is age restricted and requires authentication/cookies.');
+    }
+    if (combined.includes('facebook.com/login')) {
+      throw new Error('This Facebook content (e.g. a Story) is private and requires you to be logged in. Upload your Facebook browser cookies via "Upload cookies" in the sidebar, or share a public post/video link instead.');
     }
 
     throw new Error(e.message || 'Unknown extraction error');

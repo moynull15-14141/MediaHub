@@ -18,6 +18,7 @@ export default function Home() {
   const { token } = useAuth();
 
   const apiBase = getApiBase();
+  const isImageResult = metadata?.formats[0]?.type === 'image';
 
   const handleAnalyze = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,24 +54,51 @@ export default function Home() {
     }
   };
 
+  const triggerBlobDownload = async (downloadUrl: string, startMessage: { title: string; description: string }) => {
+    push(startMessage);
+    try {
+      const res = await fetch(downloadUrl);
+      const contentType = res.headers.get('content-type') || '';
+
+      if (!res.ok || contentType.includes('application/json')) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error || 'The file could not be prepared. Try a different format or link.');
+      }
+
+      const blob = await res.blob();
+      const disposition = res.headers.get('content-disposition') || '';
+      const filenameMatch = disposition.match(/filename="?([^"]+)"?/);
+      const filename = filenameMatch?.[1] || 'download';
+
+      const objectUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objectUrl;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(objectUrl);
+      push({ title: 'Download ready', description: `${filename} has been saved.` });
+    } catch (err: any) {
+      push({ title: 'Download failed', description: err.message || 'Something went wrong while preparing the file.' });
+    }
+  };
+
   const handleDownload = (format: any) => {
     const params = new URLSearchParams({
       url,
       formatId: format.formatId,
-      formatType: format.type === 'audio' ? 'audio' : 'video',
+      formatType: format.type,
       formatHasVideo: format.hasVideo ? 'true' : 'false',
       formatHasAudio: format.hasAudio ? 'true' : 'false',
       title: metadata?.title || 'download',
       ext: format.ext,
       ...(token ? { authToken: token } : {}),
     });
-    const a = document.createElement('a');
-    a.href = `${apiBase}/api/media/download?${params.toString()}`;
-    a.download = '';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    push({ title: 'Download started', description: `${format.quality} is being prepared.` });
+    triggerBlobDownload(`${apiBase}/api/media/download?${params.toString()}`, {
+      title: 'Preparing download',
+      description: `${format.quality} is being prepared.`,
+    });
   };
 
   const handleDownloadAudio = () => {
@@ -83,13 +111,10 @@ export default function Home() {
       ...(token ? { authToken: token } : {}),
     });
 
-    const a = document.createElement('a');
-    a.href = `${apiBase}/api/media/download/audio?${params.toString()}`;
-    a.download = '';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    push({ title: 'Audio download started', description: 'Audio-only extraction is being prepared.' });
+    triggerBlobDownload(`${apiBase}/api/media/download/audio?${params.toString()}`, {
+      title: 'Preparing audio download',
+      description: 'Audio-only extraction is being prepared.',
+    });
   };
 
   const handleRefresh = () => {
@@ -144,10 +169,10 @@ export default function Home() {
               <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mb-4 inline-flex items-center gap-2 rounded-full border border-blue-500/20 bg-blue-500/10 px-3 py-1 text-sm font-medium text-blue-300">
                 <BadgeCheck className="h-4 w-4" /> Analysis complete
               </motion.div>
-              <motion.h1 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="text-4xl font-semibold tracking-tight text-white md:text-5xl">
+              <motion.h1 initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="text-4xl font-semibold tracking-tight text-[var(--text-primary)] md:text-5xl">
                 {metadata.title}
               </motion.h1>
-              <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mx-auto mt-4 max-w-2xl text-base leading-7 text-slate-400 md:text-lg">
+              <motion.p initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mx-auto mt-4 max-w-2xl text-base leading-7 text-[var(--text-muted)] md:text-lg">
                 Ready to download high-quality media or extract audio instantly.
               </motion.p>
             </div>
@@ -173,9 +198,11 @@ export default function Home() {
               <button onClick={() => handleDownload(metadata.formats[0])} className="flex w-full items-center justify-center gap-2 rounded-2xl button-primary px-4 py-4 text-sm font-semibold transition">
                 <Download className="h-4 w-4" /> Download now
               </button>
-              <button onClick={handleDownloadAudio} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/90 px-4 py-4 text-sm font-medium text-[var(--text-primary)] transition hover:bg-[var(--panel-bg)]">
-                <Download className="h-4 w-4" /> Download audio only
-              </button>
+              {!isImageResult && (
+                <button onClick={handleDownloadAudio} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/90 px-4 py-4 text-sm font-medium text-[var(--text-primary)] transition hover:bg-[var(--panel-bg)]">
+                  <Download className="h-4 w-4" /> Download audio only
+                </button>
+              )}
               <button onClick={handleRefresh} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/90 px-4 py-4 text-sm font-medium text-[var(--text-primary)] transition hover:bg-[var(--panel-bg)]">
                 <RotateCcw className="h-4 w-4" /> Analyze again
               </button>
@@ -221,7 +248,7 @@ export default function Home() {
 
               <div className="mt-6 grid gap-6 md:grid-cols-[240px_1fr]">
                 <div className="overflow-hidden rounded-[1.5rem] border border-[var(--border)] bg-[var(--panel-bg)]">
-                  <img src={metadata.thumbnail} alt={metadata.title} className="h-48 w-full object-cover" />
+                  <img src={metadata.thumbnail} alt={metadata.title} className={`h-48 w-full ${isImageResult ? 'object-contain bg-black/5' : 'object-cover'}`} />
                   <div className="flex items-center justify-between px-4 py-3 text-sm text-[var(--text-muted)]">
                     <span>{metadata.duration}</span>
                     <span>{metadata.author}</span>
@@ -277,9 +304,11 @@ export default function Home() {
                   <button onClick={() => handleDownload(metadata.formats[0])} className="flex w-full items-center justify-center gap-2 rounded-2xl button-primary px-4 py-3 font-semibold transition">
                     <Download className="h-4 w-4" /> Download now
                   </button>
-                  <button onClick={handleDownloadAudio} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/90 px-4 py-3 font-medium text-[var(--text-primary)] transition hover:bg-[var(--panel-bg)]">
-                    <Download className="h-4 w-4" /> Download audio only
-                  </button>
+                  {!isImageResult && (
+                    <button onClick={handleDownloadAudio} className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/90 px-4 py-3 font-medium text-[var(--text-primary)] transition hover:bg-[var(--panel-bg)]">
+                      <Download className="h-4 w-4" /> Download audio only
+                    </button>
+                  )}
                   <button className="flex w-full items-center justify-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/90 px-4 py-3 font-medium text-[var(--text-primary)] transition hover:bg-[var(--panel-bg)]">
                     <Copy className="h-4 w-4" /> Copy source link
                   </button>
@@ -296,23 +325,25 @@ export default function Home() {
                   <div className="flex items-center justify-between rounded-2xl border border-[var(--border)] bg-[var(--surface)]/90 px-4 py-3"><span>Estimated file size</span><span className="font-medium text-[var(--text-primary)]">{metadata.fileSize}</span></div>
                 </div>
               </div>
-              <div className="rounded-[2rem] border border-[var(--border)] bg-[var(--panel-bg)] p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold text-[var(--text-primary)]">Audio-only download</h3>
-                    <p className="mt-2 text-sm text-[var(--text-muted)]">Grab a clean audio file directly from the source.</p>
+              {!isImageResult && (
+                <div className="rounded-[2rem] border border-[var(--border)] bg-[var(--panel-bg)] p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="text-lg font-semibold text-[var(--text-primary)]">Audio-only download</h3>
+                      <p className="mt-2 text-sm text-[var(--text-muted)]">Grab a clean audio file directly from the source.</p>
+                    </div>
+                    <span className="rounded-full border border-[var(--border)] bg-[var(--surface)]/90 px-3 py-1 text-sm text-[var(--text-muted)]">Audio</span>
                   </div>
-                  <span className="rounded-full border border-[var(--border)] bg-[var(--surface)]/90 px-3 py-1 text-sm text-[var(--text-muted)]">Audio</span>
+                  <button onClick={handleDownloadAudio} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl button-primary px-4 py-3 font-semibold transition">
+                    <Download className="h-4 w-4" /> Download audio only
+                  </button>
                 </div>
-                <button onClick={handleDownloadAudio} className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-white px-4 py-3 font-semibold text-black transition hover:bg-slate-200">
-                  <Download className="h-4 w-4" /> Download audio only
-                </button>
-              </div>
+              )}
             </div>
           </motion.section>
         ) : (
           <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
-            <EmptyState icon={PlayCircle} title="Ready for your next media analysis" description="Paste a valid URL to unlock metadata, format options, download actions, and rich insights in seconds." action={<button className="rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-white transition hover:bg-white/10">Try an example link</button>} />
+            <EmptyState icon={PlayCircle} title="Ready for your next media analysis" description="Paste a valid URL to unlock metadata, format options, download actions, and rich insights in seconds." action={<button className="rounded-2xl border border-[var(--border)] bg-[var(--surface)]/90 px-4 py-2 text-sm font-medium text-[var(--text-primary)] transition hover:bg-[var(--panel-bg)]">Try an example link</button>} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -342,12 +373,12 @@ export default function Home() {
           {quickFacts.map((card) => {
             const Icon = card.icon;
             return (
-              <div key={card.title} className="rounded-[2rem] border border-white/10 bg-white/[0.03] p-6 text-center">
-                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-slate-300">
+              <div key={card.title} className="rounded-[2rem] border border-[var(--border)] bg-[var(--panel-bg)] p-6 text-center">
+                <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--surface)] text-[var(--text-secondary)]">
                   <Icon className="h-6 w-6" />
                 </div>
-                <h3 className="mt-4 text-lg font-semibold text-white">{card.title}</h3>
-                <p className="mt-2 text-sm leading-7 text-slate-400">{card.description}</p>
+                <h3 className="mt-4 text-lg font-semibold text-[var(--text-primary)]">{card.title}</h3>
+                <p className="mt-2 text-sm leading-7 text-[var(--text-muted)]">{card.description}</p>
               </div>
             );
           })}

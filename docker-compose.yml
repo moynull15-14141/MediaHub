@@ -1,4 +1,20 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: mediahub_postgres
+    environment:
+      POSTGRES_USER: mediahub
+      POSTGRES_PASSWORD: mediahub
+      POSTGRES_DB: mediahub
+    volumes:
+      - mediahub_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mediahub -d mediahub"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: always
+
   mediahub:
     build:
       context: .
@@ -6,6 +22,15 @@ services:
     container_name: mediahub_downloader
     ports:
       - "3000:3000"
+    env_file:
+      - .env
     environment:
       NODE_ENV: production
+      DATABASE_URL: postgresql://mediahub:mediahub@postgres:5432/mediahub
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: always
+
+volumes:
+  mediahub_pgdata:

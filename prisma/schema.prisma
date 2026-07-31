@@ -1,0 +1,40 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ConversionStatus {
+  QUEUED
+  CONVERTING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model ConversionJob {
+  id                String           @id @default(uuid())
+  userId            String?
+  originalFilename  String
+  inputFormat       String
+  outputFormat      String?
+  fileSizeBytes     BigInt?
+  durationSeconds   Float?
+  resolution        String?
+  status            ConversionStatus @default(QUEUED)
+  progress          Int              @default(0)
+  errorMessage      String?
+  inputPath         String?
+  outputPath        String?
+  createdAt         DateTime         @default(now())
+  startedAt         DateTime?
+  completedAt       DateTime?
+  downloadExpiresAt DateTime?
+  updatedAt         DateTime         @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+}

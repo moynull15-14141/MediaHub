@@ -4,6 +4,8 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import mediaRoutes from './server/routes/media.routes';
 import authRoutes from './server/routes/auth.routes';
+import converterRoutes from './server/routes/converter.routes';
+import { startConverterCleanupScheduler } from './server/services/converter-cleanup.service';
 
 async function startServer() {
   const app = express();
@@ -26,6 +28,9 @@ async function startServer() {
   // API Routes
   app.use('/api/auth', authRoutes);
   app.use('/api/media', mediaRoutes);
+  app.use('/api/converter', converterRoutes);
+
+  startConverterCleanupScheduler();
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', uptime: process.uptime() });

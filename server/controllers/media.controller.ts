@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import { extractMetadata, getDownloadHistory, saveToHistory, normalizeUrl, getUserCookiePathFromToken } from '../services/media.service';
+import { extractMetadata, getDownloadHistory, saveToHistory, normalizeUrl, getUserCookiePathFromToken, resolveDirectMediaUrl } from '../services/media.service';
 import youtubedl from 'youtube-dl-exec';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
@@ -47,6 +47,14 @@ const buildYtdlpDownloadOptions = (token?: string) => {
   }
 
   return options;
+};
+
+const friendlyDownloadError = (error: any, fallback: string) => {
+  const combined = `${typeof error.stderr === 'string' ? error.stderr : ''}\n${error.message || ''}`;
+  if (combined.includes('facebook.com/login')) {
+    return 'This Facebook content (e.g. a Story) is private and requires you to be logged in. Upload your Facebook browser cookies via "Upload cookies" in the sidebar, or share a public post/video link instead.';
+  }
+  return error.stderr || error.message || fallback;
 };
 
 const runYtdlp = async (url: string, options: Record<string, any>, token?: string) => {
@@ -115,7 +123,7 @@ export const downloadAudio = async (req: Request, res: Response) => {
   fs.mkdirSync(jobDir, { recursive: true });
 
   try {
-    const safeTitle = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'download';
+    const safeTitle = (title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'download').slice(0, 100).replace(/_+$/g, '') || 'download';
     const audioExtensions = ['mp3', 'aac', 'm4a', 'wav', 'ogg', 'flac'];
     const outputExt = audioExtensions.includes(ext) ? ext : 'mp3';
     const filename = `${safeTitle}.${outputExt}`;
@@ -151,7 +159,7 @@ export const downloadAudio = async (req: Request, res: Response) => {
     console.error('Audio download exception:', error);
     fs.rm(jobDir, { recursive: true, force: true }, () => {});
     if (!res.headersSent) {
-      res.status(500).json({ error: error.stderr || error.message || 'Internal server error during audio download' });
+      res.status(500).json({ error: friendlyDownloadError(error, 'Internal server error during audio download') });
     }
   }
 };
@@ -174,42 +182,73 @@ export const downloadMedia = async (req: Request, res: Response) => {
   const jobDir = path.join(os.tmpdir(), 'mediahub-downloads', crypto.randomUUID());
   fs.mkdirSync(jobDir, { recursive: true });
 
+  const imageContentTypes: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    gif: 'image/gif',
+    webp: 'image/webp',
+    bmp: 'image/bmp',
+    svg: 'image/svg+xml',
+  };
+
   try {
-    const safeTitle = title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'download';
+    const safeTitle = (title.replace(/[^a-z0-9]/gi, '_').replace(/_+/g, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'download').slice(0, 100).replace(/_+$/g, '') || 'download';
     const audioExtensions = ['mp3', 'aac', 'm4a', 'wav', 'ogg', 'flac'];
     const isAudioOnly = formatType === 'audio';
-    const outputExt = isAudioOnly ? (audioExtensions.includes(ext) ? ext : 'mp3') : ext;
+    const isImage = formatType === 'image';
+    const outputExt = isAudioOnly ? (audioExtensions.includes(ext) ? ext : 'mp3') : (isImage ? (imageContentTypes[ext] ? ext : 'jpg') : ext);
     const filename = `${safeTitle}.${outputExt}`;
     const outputPath = path.join(jobDir, filename);
     const formatArg = formatId || 'best';
 
-    // Anything that isn't audio-only and doesn't already carry an audio
-    // track needs to be merged with the best available audio. Let yt-dlp
-    // (backed by ffmpeg) do that merge itself instead of hand-rolling it -
-    // it reliably picks a compatible audio codec for the target container.
-    const needsAudioMerge = !isAudioOnly && !formatHasAudio;
-    const selectedFormat = isAudioOnly
-      ? (formatArg === 'best' ? 'bestaudio' : formatArg)
-      : needsAudioMerge
-      ? (formatArg === 'best' ? 'bestvideo+bestaudio/best' : `${formatArg}+bestaudio/best`)
-      : formatArg;
+    if (isImage) {
+      // Images aren't yt-dlp's domain - fetch the source file directly. If
+      // `url` is a webpage rather than the raw file (e.g. a Wikipedia file
+      // page), resolve the actual image URL via yt-dlp's extractor first.
+      let imageResponse = await fetch(url);
+      const initialContentType = imageResponse.headers.get('content-type') || '';
+      if (!imageResponse.ok || !initialContentType.startsWith('image/')) {
+        const resolvedUrl = await resolveDirectMediaUrl(url, getUserCookiePathFromToken(authToken));
+        if (!resolvedUrl) {
+          throw new Error('Could not resolve a direct image URL from this link');
+        }
+        imageResponse = await fetch(resolvedUrl);
+        if (!imageResponse.ok) {
+          throw new Error(`Failed to fetch resolved image (status ${imageResponse.status})`);
+        }
+      }
+      const arrayBuffer = await imageResponse.arrayBuffer();
+      fs.writeFileSync(outputPath, Buffer.from(arrayBuffer));
+    } else {
+      // Anything that isn't audio-only and doesn't already carry an audio
+      // track needs to be merged with the best available audio. Let yt-dlp
+      // (backed by ffmpeg) do that merge itself instead of hand-rolling it -
+      // it reliably picks a compatible audio codec for the target container.
+      const needsAudioMerge = !isAudioOnly && !formatHasAudio;
+      const selectedFormat = isAudioOnly
+        ? (formatArg === 'best' ? 'bestaudio' : formatArg)
+        : needsAudioMerge
+        ? (formatArg === 'best' ? 'bestvideo+bestaudio/best' : `${formatArg}+bestaudio/best`)
+        : formatArg;
 
-    const options: Record<string, any> = {
-      output: outputPath,
-      format: selectedFormat,
-      forceOverwrites: true,
-      ...(isAudioOnly
-        ? { extractAudio: true, audioFormat: outputExt, audioQuality: '192K' }
-        : { mergeOutputFormat: outputExt }),
-    };
+      const options: Record<string, any> = {
+        output: outputPath,
+        format: selectedFormat,
+        forceOverwrites: true,
+        ...(isAudioOnly
+          ? { extractAudio: true, audioFormat: outputExt, audioQuality: '192K' }
+          : { mergeOutputFormat: outputExt }),
+      };
 
-    await runYtdlp(url, options, authToken);
-
-    if (!fs.existsSync(outputPath)) {
-      throw new Error('Downloaded file missing after yt-dlp finished');
+      await runYtdlp(url, options, authToken);
     }
 
-    res.setHeader('Content-Type', isAudioOnly ? 'audio/mpeg' : 'application/octet-stream');
+    if (!fs.existsSync(outputPath)) {
+      throw new Error('Downloaded file missing after processing finished');
+    }
+
+    res.setHeader('Content-Type', isAudioOnly ? 'audio/mpeg' : isImage ? (imageContentTypes[outputExt] || 'application/octet-stream') : 'application/octet-stream');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.download(outputPath, filename, (err) => {
       if (err) {
@@ -224,7 +263,7 @@ export const downloadMedia = async (req: Request, res: Response) => {
     console.error('Download exception:', error);
     fs.rm(jobDir, { recursive: true, force: true }, () => {});
     if (!res.headersSent) {
-      res.status(500).json({ error: error.stderr || error.message || 'Internal server error during download' });
+      res.status(500).json({ error: friendlyDownloadError(error, 'Internal server error during download') });
     }
   }
 };

@@ -8,6 +8,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
+COPY prisma ./prisma
 ENV YOUTUBE_DL_SKIP_PYTHON_CHECK=1
 RUN npm config set fetch-retries 5 \
     && npm config set fetch-retry-mintimeout 20000 \
@@ -15,10 +16,12 @@ RUN npm config set fetch-retries 5 \
     && npm install --include=dev --no-audit --progress=false --ignore-scripts \
     && npm rebuild 2>/dev/null || echo "youtube-dl-exec binary download skipped (yt-dlp available from system)"
 
+RUN npx prisma generate
+
 COPY . .
 RUN npm run build
 
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["npm", "run", "start"]
+CMD ["sh", "-c", "npx prisma migrate deploy && npm run start"]
