@@ -18,6 +18,7 @@ import {
   EncodePreset,
 } from './ffmpeg.service';
 import { conversionQueue } from './conversion-queue.service';
+import { RequestOwner } from '../lib/auth-helpers';
 
 const DOWNLOAD_TTL_HOURS = Number(process.env.CONVERTER_DOWNLOAD_TTL_HOURS) || 24;
 
@@ -33,6 +34,15 @@ export class ConverterError extends Error {
     super(message);
   }
 }
+
+const ownerMatches = (job: { userId: string | null; anonId: string | null }, owner: RequestOwner): boolean =>
+  owner.userId ? job.userId === owner.userId : job.userId === null && job.anonId === owner.anonId;
+
+const findOwnedJob = async (jobId: string, owner: RequestOwner) => {
+  const job = await prisma.conversionJob.findUnique({ where: { id: jobId } });
+  if (!job || !ownerMatches(job, owner)) throw new ConverterError('Job not found', 404);
+  return job;
+};
 
 export const parseConversionOptions = (body: any): ConversionOptions => {
   const { outputFormat, quality, videoCodec, audioCodec, fps, audioMode, preset } = body || {};
@@ -78,7 +88,7 @@ export const toPublicJob = (job: any) => ({
   downloadExpiresAt: job.downloadExpiresAt,
 });
 
-export const createJobFromUpload = async (info: UploadedFileInfo, userId?: string) => {
+export const createJobFromUpload = async (info: UploadedFileInfo, owner: RequestOwner) => {
   const localInputPath = getInputPath(info.jobId, info.inputExt);
   const inputKey = getInputKey(info.jobId, info.inputExt);
   try {
@@ -87,7 +97,8 @@ export const createJobFromUpload = async (info: UploadedFileInfo, userId?: strin
     const job = await prisma.conversionJob.create({
       data: {
         id: info.jobId,
-        userId: userId ?? null,
+        userId: owner.userId ?? null,
+        anonId: owner.userId ? null : owner.anonId,
         originalFilename: info.originalFilename,
         inputFormat: info.inputExt.replace('.', ''),
         fileSizeBytes: BigInt(info.fileSizeBytes),
@@ -114,10 +125,9 @@ const persistProgress = async (jobId: string, percent: number | null) => {
   }
 };
 
-export const startConversion = async (jobId: string, body: any) => {
+export const startConversion = async (jobId: string, body: any, owner: RequestOwner) => {
   const options = parseConversionOptions(body);
-  const job = await prisma.conversionJob.findUnique({ where: { id: jobId } });
-  if (!job) throw new ConverterError('Job not found', 404);
+  const job = await findOwnedJob(jobId, owner);
   if (job.status !== 'QUEUED' || job.startedAt) {
     throw new ConverterError(`Job cannot be started from status ${job.status}`, 409);
   }
@@ -195,20 +205,22 @@ export const startConversion = async (jobId: string, body: any) => {
   return toPublicJob({ ...job, status: 'CONVERTING', startedAt: new Date(), outputFormat: resolvedOutputFormat, progress: 0 });
 };
 
-export const listJobs = async () => {
-  const jobs = await prisma.conversionJob.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
+export const listJobs = async (owner: RequestOwner) => {
+  const jobs = await prisma.conversionJob.findMany({
+    where: owner.userId ? { userId: owner.userId } : { userId: null, anonId: owner.anonId },
+    orderBy: { createdAt: 'desc' },
+    take: 200,
+  });
   return jobs.map(toPublicJob);
 };
 
-export const getJobStatus = async (jobId: string) => {
-  const job = await prisma.conversionJob.findUnique({ where: { id: jobId } });
-  if (!job) throw new ConverterError('Job not found', 404);
+export const getJobStatus = async (jobId: string, owner: RequestOwner) => {
+  const job = await findOwnedJob(jobId, owner);
   return toPublicJob(job);
 };
 
-export const getDownloadableJob = async (jobId: string) => {
-  const job = await prisma.conversionJob.findUnique({ where: { id: jobId } });
-  if (!job) throw new ConverterError('Job not found', 404);
+export const getDownloadableJob = async (jobId: string, owner: RequestOwner) => {
+  const job = await findOwnedJob(jobId, owner);
   if (job.status !== 'COMPLETED' || !job.outputPath) {
     throw new ConverterError(`Job is not ready for download (status: ${job.status})`, 409);
   }
@@ -218,8 +230,8 @@ export const getDownloadableJob = async (jobId: string) => {
   return job;
 };
 
-export const getDownloadUrl = async (jobId: string): Promise<string> => {
-  const job = await getDownloadableJob(jobId);
+export const getDownloadUrl = async (jobId: string, owner: RequestOwner): Promise<string> => {
+  const job = await getDownloadableJob(jobId, owner);
   const safeName =
     (job.originalFilename || 'converted')
       .replace(/[^a-z0-9]/gi, '_')
@@ -231,9 +243,8 @@ export const getDownloadUrl = async (jobId: string): Promise<string> => {
   return getPresignedDownloadUrl(job.outputPath as string, filename);
 };
 
-export const deleteJob = async (jobId: string) => {
-  const job = await prisma.conversionJob.findUnique({ where: { id: jobId } });
-  if (!job) throw new ConverterError('Job not found', 404);
+export const deleteJob = async (jobId: string, owner: RequestOwner) => {
+  const job = await findOwnedJob(jobId, owner);
   conversionQueue.cancel(jobId);
   await fs.promises.rm(getJobDir(jobId), { recursive: true, force: true });
   await deleteFromR2([job.inputPath, job.outputPath].filter(Boolean) as string[]);

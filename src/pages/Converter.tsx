@@ -173,7 +173,7 @@ export default function Converter() {
 
   const fetchJobs = async () => {
     try {
-      const res = await fetch(`${apiBase}/api/converter/jobs`);
+      const res = await fetch(`${apiBase}/api/converter/jobs`, { credentials: 'include' });
       const data = await res.json();
       setJobs(Array.isArray(data) ? data : []);
     } catch {
@@ -196,7 +196,7 @@ export default function Converter() {
     }
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${apiBase}/api/converter/status/${activeJob.id}`);
+        const res = await fetch(`${apiBase}/api/converter/status/${activeJob.id}`, { credentials: 'include' });
         if (!res.ok) return;
         const data: ConversionJob = await res.json();
         setActiveJob(data);
@@ -247,6 +247,7 @@ export default function Converter() {
         method: 'POST',
         headers: { ...authHeaders },
         body: formData,
+        credentials: 'include',
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
@@ -275,6 +276,7 @@ export default function Converter() {
       const res = await fetch(`${apiBase}/api/converter/start`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
+        credentials: 'include',
         body: JSON.stringify({
           jobId: uploadedJob.jobId,
           outputFormat,
@@ -303,7 +305,7 @@ export default function Converter() {
 
   const handleDownloadJob = async (jobId: string) => {
     try {
-      const res = await fetch(`${apiBase}/api/converter/download/${jobId}`);
+      const res = await fetch(`${apiBase}/api/converter/download/${jobId}`, { credentials: 'include' });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.url) {
         throw new Error(body?.error || 'The file could not be downloaded.');
@@ -321,7 +323,7 @@ export default function Converter() {
 
   const handleCancelOrDelete = async (jobId: string) => {
     try {
-      const res = await fetch(`${apiBase}/api/converter/${jobId}`, { method: 'DELETE' });
+      const res = await fetch(`${apiBase}/api/converter/${jobId}`, { method: 'DELETE', credentials: 'include' });
       if (!res.ok && res.status !== 204) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error || 'Failed to remove the job.');

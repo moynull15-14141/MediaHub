@@ -18,6 +18,7 @@ enum ConversionStatus {
 model ConversionJob {
   id                String           @id @default(uuid())
   userId            String?
+  anonId            String?
   originalFilename  String
   inputFormat       String
   outputFormat      String?
@@ -37,4 +38,6 @@ model ConversionJob {
 
   @@index([status])
   @@index([createdAt])
+  @@index([userId])
+  @@index([anonId])
 }

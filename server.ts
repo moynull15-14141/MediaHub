@@ -13,10 +13,15 @@ async function startServer() {
 
   app.use(express.json());
 
-  // CORS support for deployed frontend
+  // CORS support for a frontend deployed on a different origin (e.g. Vercel).
+  // The origin is reflected (rather than '*') and credentials are allowed so
+  // the anonymous-history cookie can be set/read across origins.
   app.use((req, res, next) => {
-    const allowedOrigin = process.env.ALLOWED_ORIGIN || '*';
-    res.header('Access-Control-Allow-Origin', allowedOrigin);
+    const origin = req.headers.origin;
+    if (origin) {
+      res.header('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+    }
     res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
     if (req.method === 'OPTIONS') {

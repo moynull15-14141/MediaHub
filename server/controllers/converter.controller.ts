@@ -3,7 +3,7 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
-import { getOptionalUserId } from '../lib/auth-helpers';
+import { getRequestOwner } from '../lib/auth-helpers';
 import { getInputDir, getJobDir, isValidJobId } from '../lib/converter-paths';
 import {
   createJobFromUpload,
@@ -85,7 +85,7 @@ export const upload = async (req: Request, res: Response) => {
     const ext = path.extname(file.originalname).toLowerCase();
     const job = await createJobFromUpload(
       { jobId, originalFilename: file.originalname.slice(0, 255), inputExt: ext, fileSizeBytes: file.size },
-      getOptionalUserId(req),
+      getRequestOwner(req, res),
     );
     res.status(201).json(job);
   } catch (err: any) {
@@ -104,7 +104,7 @@ export const start = async (req: Request, res: Response) => {
     return;
   }
   try {
-    const job = await startConversion(jobId, req.body);
+    const job = await startConversion(jobId, req.body, getRequestOwner(req, res));
     res.status(202).json(job);
   } catch (err: any) {
     if (err instanceof ConverterError) {
@@ -116,9 +116,9 @@ export const start = async (req: Request, res: Response) => {
   }
 };
 
-export const listJobsHandler = async (_req: Request, res: Response) => {
+export const listJobsHandler = async (req: Request, res: Response) => {
   try {
-    const jobs = await listJobs();
+    const jobs = await listJobs(getRequestOwner(req, res));
     res.json(jobs);
   } catch (err) {
     console.error('List jobs error:', err);
@@ -133,7 +133,7 @@ export const statusHandler = async (req: Request, res: Response) => {
     return;
   }
   try {
-    const job = await getJobStatus(id);
+    const job = await getJobStatus(id, getRequestOwner(req, res));
     res.json(job);
   } catch (err: any) {
     if (err instanceof ConverterError) {
@@ -151,7 +151,7 @@ export const downloadHandler = async (req: Request, res: Response) => {
     return;
   }
   try {
-    const url = await getDownloadUrl(id);
+    const url = await getDownloadUrl(id, getRequestOwner(req, res));
     res.json({ url });
   } catch (err: any) {
     if (err instanceof ConverterError) {
@@ -169,7 +169,7 @@ export const deleteHandler = async (req: Request, res: Response) => {
     return;
   }
   try {
-    await deleteJob(id);
+    await deleteJob(id, getRequestOwner(req, res));
     res.status(204).send();
   } catch (err: any) {
     if (err instanceof ConverterError) {
