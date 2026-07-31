@@ -24,6 +24,10 @@ async function startServer() {
     }
     res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
     res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+    // Content-Disposition isn't on the CORS response-header safelist, so
+    // without this, cross-origin fetch() can't read the filename we set,
+    // and downloads fall back to a generic extension-less name in the browser.
+    res.header('Access-Control-Expose-Headers', 'Content-Disposition');
     if (req.method === 'OPTIONS') {
       return res.sendStatus(204);
     }
