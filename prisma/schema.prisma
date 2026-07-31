@@ -41,3 +41,35 @@ model ConversionJob {
   @@index([userId])
   @@index([anonId])
 }
+
+enum ImageJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model ImageJob {
+  id                String         @id @default(uuid())
+  userId            String?
+  anonId            String?
+  originalFilename  String
+  inputFormat       String
+  outputFormat      String?
+  fileSizeBytes     BigInt?
+  width             Int?
+  height            Int?
+  status            ImageJobStatus @default(QUEUED)
+  errorMessage      String?
+  inputPath         String?
+  outputPath        String?
+  createdAt         DateTime       @default(now())
+  completedAt       DateTime?
+  downloadExpiresAt DateTime?
+  updatedAt         DateTime       @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([userId])
+  @@index([anonId])
+}

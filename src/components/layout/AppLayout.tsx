@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { DownloadCloud, History, Menu, Settings, ShieldCheck, X, LogIn, LogOut, Key, Film } from 'lucide-react';
+import { DownloadCloud, History, Menu, Settings, ShieldCheck, X, LogIn, LogOut, Key, Film, ImageIcon } from 'lucide-react';
 import { useAuth } from '@/src/components/auth/AuthContext';
 import { cn } from '@/src/lib/utils';
 
@@ -11,6 +11,7 @@ export function AppLayout() {
   const navItems = [
     { to: '/', icon: DownloadCloud, label: 'Downloader' },
     { to: '/converter', icon: Film, label: 'Converter' },
+    { to: '/image-toolkit', icon: ImageIcon, label: 'Image Toolkit' },
     { to: '/history', icon: History, label: 'History' },
     { to: '/settings', icon: Settings, label: 'Settings' },
     { to: '/cookies', icon: Key, label: 'Upload cookies' },
