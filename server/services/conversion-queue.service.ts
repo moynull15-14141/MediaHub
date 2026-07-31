@@ -4,7 +4,10 @@ interface QueueTask {
 }
 
 class ConversionQueue {
-  private maxConcurrency = Number(process.env.CONVERTER_MAX_CONCURRENCY) || 2;
+  // Defaults to 1: on a memory-constrained instance (e.g. Render's free 512MB
+  // plan), running more than one ffmpeg encode at a time easily exceeds the
+  // limit and crashes the whole process. Raise via env var on a bigger plan.
+  private maxConcurrency = Number(process.env.CONVERTER_MAX_CONCURRENCY) || 1;
   private running = new Map<string, () => void>();
   private pending: QueueTask[] = [];
   private activeCount = 0;
