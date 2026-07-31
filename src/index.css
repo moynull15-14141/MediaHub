@@ -1,5 +1,26 @@
 @import "tailwindcss";
 
+/* Same font files installed in the backend container (Dockerfile) for the
+   Image Toolkit's server-rendered text watermark - loading them here too
+   means the live browser preview matches the actual processed output
+   instead of silently falling back to a default system font. */
+@font-face { font-family: 'DejaVu Sans'; src: url('/fonts/DejaVuSans.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'DejaVu Sans'; src: url('/fonts/DejaVuSans-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'DejaVu Serif'; src: url('/fonts/DejaVuSerif.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'DejaVu Serif'; src: url('/fonts/DejaVuSerif-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Liberation Sans'; src: url('/fonts/LiberationSans-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Liberation Sans'; src: url('/fonts/LiberationSans-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Liberation Serif'; src: url('/fonts/LiberationSerif-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Liberation Serif'; src: url('/fonts/LiberationSerif-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Liberation Mono'; src: url('/fonts/LiberationMono-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Liberation Mono'; src: url('/fonts/LiberationMono-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Noto Sans'; src: url('/fonts/NotoSans-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Noto Sans'; src: url('/fonts/NotoSans-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Carlito'; src: url('/fonts/Carlito-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Carlito'; src: url('/fonts/Carlito-Bold.ttf') format('truetype'); font-weight: 700; }
+@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Regular.ttf') format('truetype'); font-weight: 400; }
+@font-face { font-family: 'Caladea'; src: url('/fonts/Caladea-Bold.ttf') format('truetype'); font-weight: 700; }
+
 :root {
   color-scheme: dark;
   --app-bg: #09090B;
@@ -126,6 +147,16 @@ body {
   outline: none;
   border-color: rgba(37, 99, 235, 0.65);
   box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.15);
+}
+
+/* Native <select> popups render on an opaque OS surface, not the page's own
+   background - the input field's translucent background (fine for the
+   closed control) left dropdown options nearly invisible (light text on a
+   near-white native popup) until hovered. Force an opaque, theme-matching
+   background/text color on the options themselves. */
+select option {
+  background-color: var(--surface);
+  color: var(--text-primary);
 }
 
 .focus-ring {

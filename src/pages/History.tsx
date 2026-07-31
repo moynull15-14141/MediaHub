@@ -55,18 +55,18 @@ export default function History() {
             <div className="flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] px-3 py-2 text-sm text-[var(--text-muted)]">
               <Filter className="h-4 w-4" />
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="bg-transparent text-sm text-[var(--text-primary)] outline-none">
-                <option value="all" className="bg-[#050505]">All statuses</option>
-                <option value="completed" className="bg-[#050505]">Completed</option>
-                <option value="pending" className="bg-[#050505]">Pending</option>
+                <option value="all">All statuses</option>
+                <option value="completed">Completed</option>
+                <option value="pending">Pending</option>
               </select>
             </div>
             <div className="flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] px-3 py-2 text-sm text-[var(--text-muted)]">
               <Filter className="h-4 w-4" />
               <select value={deviceFilter} onChange={(e) => setDeviceFilter(e.target.value)} className="bg-transparent text-sm text-[var(--text-primary)] outline-none">
-                <option value="all" className="bg-[var(--surface)]">All devices</option>
-                <option value="Desktop" className="bg-[var(--surface)]">Desktop</option>
-                <option value="Mobile" className="bg-[var(--surface)]">Mobile</option>
-                <option value="Tablet" className="bg-[var(--surface)]">Tablet</option>
+                <option value="all">All devices</option>
+                <option value="Desktop">Desktop</option>
+                <option value="Mobile">Mobile</option>
+                <option value="Tablet">Tablet</option>
               </select>
             </div>
           </div>

@@ -18,16 +18,16 @@ import {
   ImageProcessOptions,
   ImageOutputFormat,
   ResizeFit,
-  WatermarkPosition,
   ImageColorSpace,
+  WATERMARK_FONTS,
 } from './image-processing.service';
 
 const DOWNLOAD_TTL_HOURS = Number(process.env.IMAGE_DOWNLOAD_TTL_HOURS) || 24;
 
 const OUTPUT_FORMATS: ImageOutputFormat[] = ['png', 'jpeg', 'webp', 'avif'];
 const FITS: ResizeFit[] = ['fill', 'contain', 'cover', 'inside', 'outside'];
-const WATERMARK_POSITIONS: WatermarkPosition[] = ['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center'];
 const COLOR_SPACES: ImageColorSpace[] = ['srgb', 'cmyk', 'b-w'];
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 export class ImageError extends Error {
   constructor(message: string, public status: number) {
@@ -95,7 +95,8 @@ export const parseImageProcessOptions = (body: any): ImageProcessOptions => {
     resizeWidth, resizeHeight, resizePercent, fit,
     cropX, cropY, cropWidth, cropHeight,
     rotate, flipHorizontal, flipVertical,
-    watermarkText, watermarkOpacity, watermarkPosition, watermarkScale, watermarkPadding,
+    watermarkText, watermarkOpacity, watermarkScale, watermarkXPercent, watermarkYPercent,
+    watermarkFontFamily, watermarkColor, watermarkBold,
     colorSpace, brightness, contrast, saturation, hue,
   } = body || {};
 
@@ -108,11 +109,14 @@ export const parseImageProcessOptions = (body: any): ImageProcessOptions => {
   if (rotate !== undefined && ![90, 180, 270].includes(Number(rotate))) {
     throw new ImageError(`Invalid rotate: ${rotate}`, 400);
   }
-  if (watermarkPosition !== undefined && !WATERMARK_POSITIONS.includes(watermarkPosition)) {
-    throw new ImageError(`Invalid watermarkPosition: ${watermarkPosition}`, 400);
-  }
   if (colorSpace !== undefined && !COLOR_SPACES.includes(colorSpace)) {
     throw new ImageError(`Invalid colorSpace: ${colorSpace}`, 400);
+  }
+  if (watermarkFontFamily !== undefined && !WATERMARK_FONTS.includes(watermarkFontFamily)) {
+    throw new ImageError(`Invalid watermarkFontFamily: ${watermarkFontFamily}`, 400);
+  }
+  if (watermarkColor !== undefined && !HEX_COLOR_PATTERN.test(watermarkColor)) {
+    throw new ImageError(`Invalid watermarkColor: ${watermarkColor}`, 400);
   }
   const checkRange = (value: any, name: string, min: number, max: number) => {
     if (value === undefined || value === '') return;
@@ -123,6 +127,8 @@ export const parseImageProcessOptions = (body: any): ImageProcessOptions => {
   checkRange(contrast, 'contrast', -100, 100);
   checkRange(saturation, 'saturation', -100, 100);
   checkRange(hue, 'hue', -180, 180);
+  checkRange(watermarkXPercent, 'watermarkXPercent', 0, 100);
+  checkRange(watermarkYPercent, 'watermarkYPercent', 0, 100);
 
   const toNumberOrUndefined = (v: any) => (v === undefined || v === '' ? undefined : Number(v));
   const toBool = (v: any) => v === true || v === 'true';
@@ -153,9 +159,12 @@ export const parseImageProcessOptions = (body: any): ImageProcessOptions => {
     flipVertical: toBool(flipVertical),
     watermarkText: watermarkText || undefined,
     watermarkOpacity: toNumberOrUndefined(watermarkOpacity),
-    watermarkPosition,
     watermarkScale: toNumberOrUndefined(watermarkScale),
-    watermarkPadding: toNumberOrUndefined(watermarkPadding),
+    watermarkXPercent: toNumberOrUndefined(watermarkXPercent),
+    watermarkYPercent: toNumberOrUndefined(watermarkYPercent),
+    watermarkFontFamily,
+    watermarkColor,
+    watermarkBold: toBool(watermarkBold),
     colorSpace,
     brightness: toNumberOrUndefined(brightness),
     contrast: toNumberOrUndefined(contrast),

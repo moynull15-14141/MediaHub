@@ -4,8 +4,25 @@ import exifr from 'exifr';
 
 export type ImageOutputFormat = 'png' | 'jpeg' | 'webp' | 'avif';
 export type ResizeFit = 'fill' | 'contain' | 'cover' | 'inside' | 'outside';
-export type WatermarkPosition = 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center';
 export type ImageColorSpace = 'srgb' | 'cmyk' | 'b-w';
+
+// The only font-family values the SVG watermark renderer will accept - these
+// match the font packages actually installed in the container (Dockerfile),
+// so what the user picks is guaranteed to render as a genuinely different
+// typeface rather than silently falling back to whatever librsvg finds.
+export const WATERMARK_FONTS = [
+  'DejaVu Sans',
+  'DejaVu Serif',
+  'Liberation Sans',
+  'Liberation Serif',
+  'Liberation Mono',
+  'Noto Sans',
+  'Carlito',
+  'Caladea',
+] as const;
+export type WatermarkFont = typeof WATERMARK_FONTS[number];
+
+const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
 export interface ImageProcessOptions {
   outputFormat: ImageOutputFormat;
@@ -32,9 +49,15 @@ export interface ImageProcessOptions {
   watermarkText?: string;
   watermarkImagePath?: string;
   watermarkOpacity?: number;
-  watermarkPosition?: WatermarkPosition;
   watermarkScale?: number;
-  watermarkPadding?: number;
+  // Center point of the watermark, as a 0-100 percentage of the image's
+  // width/height - lets the user drag it to any free position on the canvas
+  // instead of picking from a fixed set of corners.
+  watermarkXPercent?: number;
+  watermarkYPercent?: number;
+  watermarkFontFamily?: WatermarkFont;
+  watermarkColor?: string;
+  watermarkBold?: boolean;
 
   // -100..100, 0 = no change
   brightness?: number;
@@ -130,62 +153,75 @@ const buildWatermarkOverlay = async (
 ): Promise<{ input: Buffer; left: number; top: number }[]> => {
   const opacity = options.watermarkOpacity ?? 1;
   const scale = options.watermarkScale ?? 0.25;
-  const padding = options.watermarkPadding ?? 16;
-  const position = options.watermarkPosition ?? 'bottom-right';
+  const xPercent = options.watermarkXPercent ?? 85;
+  const yPercent = options.watermarkYPercent ?? 85;
+  // These two values get embedded directly into an SVG string below, so they
+  // must be strictly validated here rather than trusted from the caller -
+  // font-family must be one of the fonts actually installed in the
+  // container, and color must be a plain #rrggbb hex value.
+  const fontFamily = options.watermarkFontFamily && WATERMARK_FONTS.includes(options.watermarkFontFamily)
+    ? options.watermarkFontFamily
+    : 'DejaVu Sans';
+  const color = options.watermarkColor && HEX_COLOR_PATTERN.test(options.watermarkColor)
+    ? options.watermarkColor
+    : '#ffffff';
 
-  let overlayBuffer: Buffer;
-  let overlayWidth: number;
-  let overlayHeight: number;
+  if (options.watermarkText) {
+    const fontWeight = options.watermarkBold ? 'bold' : 'normal';
+    const text = options.watermarkText.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] || c));
+    const maxWidth = baseWidth * 0.92;
+
+    // Font size alone (not text length) drove the previous size formula, so
+    // a long string at a normal-looking "scale" could render wider than the
+    // image itself and get clipped by the image edge. Instead, render onto
+    // a generously oversized canvas, trim to the actual ink bounding box,
+    // and shrink the font if that measured width doesn't fit - one
+    // rendering pass to measure, a second only if a correction is needed.
+    const renderTrimmed = async (fontSize: number) => {
+      const canvasW = baseWidth * 2;
+      const canvasH = Math.round(fontSize * 3);
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${canvasW}" height="${canvasH}">
+        <text x="${canvasW / 2}" y="${Math.round(canvasH * 0.6)}" font-size="${fontSize}" font-family="${fontFamily}" font-weight="${fontWeight}" fill="${color}" fill-opacity="${opacity}" stroke="black" stroke-opacity="${opacity * 0.35}" stroke-width="1" text-anchor="middle">${text}</text>
+      </svg>`;
+      return sharp(Buffer.from(svg)).trim().toBuffer({ resolveWithObject: true });
+    };
+
+    let fontSize = Math.max(12, Math.round(baseWidth * scale * 0.3));
+    let { data, info } = await renderTrimmed(fontSize);
+    if (info.width > maxWidth) {
+      fontSize = Math.max(8, Math.round(fontSize * (maxWidth / info.width)));
+      ({ data, info } = await renderTrimmed(fontSize));
+    }
+
+    const overlayWidth = info.width;
+    const overlayHeight = info.height;
+    const left = Math.round((baseWidth * xPercent) / 100 - overlayWidth / 2);
+    const top = Math.round((baseHeight * yPercent) / 100 - overlayHeight / 2);
+    return [{
+      input: data,
+      left: Math.max(0, Math.min(left, baseWidth - overlayWidth)),
+      top: Math.max(0, Math.min(top, baseHeight - overlayHeight)),
+    }];
+  }
 
   if (options.watermarkImagePath) {
     const targetWidth = Math.max(1, Math.round(baseWidth * scale));
     const resized = await sharp(options.watermarkImagePath).resize({ width: targetWidth }).ensureAlpha().toBuffer();
     const meta = await sharp(resized).metadata();
-    overlayWidth = meta.width || targetWidth;
-    overlayHeight = meta.height || targetWidth;
+    const overlayWidth = meta.width || targetWidth;
+    const overlayHeight = meta.height || targetWidth;
     const base64 = resized.toString('base64');
     const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${overlayWidth}" height="${overlayHeight}"><image href="data:image/png;base64,${base64}" width="${overlayWidth}" height="${overlayHeight}" opacity="${opacity}"/></svg>`;
-    overlayBuffer = Buffer.from(svg);
-  } else if (options.watermarkText) {
-    const fontSize = Math.max(12, Math.round(baseWidth * scale * 0.3));
-    const text = options.watermarkText.replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c] || c));
-    overlayWidth = Math.min(baseWidth, Math.round(text.length * fontSize * 0.6) + 20);
-    overlayHeight = Math.round(fontSize * 1.6);
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${overlayWidth}" height="${overlayHeight}">
-      <text x="0" y="${fontSize}" font-size="${fontSize}" font-family="sans-serif" fill="white" fill-opacity="${opacity}" stroke="black" stroke-opacity="${opacity * 0.5}" stroke-width="1">${text}</text>
-    </svg>`;
-    overlayBuffer = Buffer.from(svg);
-  } else {
-    return [];
+    const left = Math.round((baseWidth * xPercent) / 100 - overlayWidth / 2);
+    const top = Math.round((baseHeight * yPercent) / 100 - overlayHeight / 2);
+    return [{
+      input: Buffer.from(svg),
+      left: Math.max(0, Math.min(left, baseWidth - overlayWidth)),
+      top: Math.max(0, Math.min(top, baseHeight - overlayHeight)),
+    }];
   }
 
-  let left: number;
-  let top: number;
-  switch (position) {
-    case 'top-left':
-      left = padding;
-      top = padding;
-      break;
-    case 'top-right':
-      left = baseWidth - overlayWidth - padding;
-      top = padding;
-      break;
-    case 'bottom-left':
-      left = padding;
-      top = baseHeight - overlayHeight - padding;
-      break;
-    case 'center':
-      left = Math.round((baseWidth - overlayWidth) / 2);
-      top = Math.round((baseHeight - overlayHeight) / 2);
-      break;
-    case 'bottom-right':
-    default:
-      left = baseWidth - overlayWidth - padding;
-      top = baseHeight - overlayHeight - padding;
-      break;
-  }
-
-  return [{ input: overlayBuffer, left: Math.max(0, left), top: Math.max(0, top) }];
+  return [];
 };
 
 export const processImage = async (
@@ -252,11 +288,15 @@ export const processImage = async (
   }
 
   if (options.brightness || options.saturation || options.hue) {
-    pipeline = pipeline.modulate({
-      brightness: options.brightness ? 1 + options.brightness / 100 : undefined,
-      saturation: options.saturation ? 1 + options.saturation / 100 : undefined,
-      hue: options.hue || undefined,
-    });
+    // Sharp's modulate() rejects a key that's present but explicitly
+    // undefined (throws "Expected number... but received undefined")
+    // rather than treating it as omitted, so only include the keys that
+    // actually have a value.
+    const modulate: { brightness?: number; saturation?: number; hue?: number } = {};
+    if (options.brightness) modulate.brightness = 1 + options.brightness / 100;
+    if (options.saturation) modulate.saturation = 1 + options.saturation / 100;
+    if (options.hue) modulate.hue = options.hue;
+    pipeline = pipeline.modulate(modulate);
   }
   if (options.contrast) {
     // sharp has no direct "contrast" knob - the standard formula scales
