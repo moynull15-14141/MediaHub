@@ -90,6 +90,7 @@ const PRESETS: { value: Preset; label: string }[] = [
 ];
 
 const FPS_OPTIONS = ['keep', '24', '25', '30', '50', '60'];
+const ACTIVE_JOB_KEY = 'mediahub-converter-active-job';
 
 const STATUS_STYLES: Record<ConversionJob['status'], string> = {
   QUEUED: 'border-amber-500/20 bg-amber-500/10 text-amber-300',
@@ -193,6 +194,33 @@ export default function Converter() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Restore whatever job was in progress if this page was unmounted (e.g. the
+  // user switched to another tab/section) and comes back later - the job
+  // itself keeps running server-side, only the local view was lost.
+  useEffect(() => {
+    const storedId = localStorage.getItem(ACTIVE_JOB_KEY);
+    if (!storedId) return;
+    fetch(`${apiBase}/api/converter/status/${storedId}`, { credentials: 'include' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: ConversionJob | null) => {
+        if (!data) {
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+          return;
+        }
+        setUploadedJob({
+          jobId: data.id,
+          originalFilename: data.originalFilename,
+          inputFormat: data.inputFormat,
+          durationSeconds: data.durationSeconds,
+          resolution: data.resolution,
+          fileSizeBytes: data.fileSizeBytes,
+        });
+        setActiveJob(data);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     if (!activeJob || activeJob.status === 'COMPLETED' || activeJob.status === 'FAILED' || activeJob.status === 'CANCELLED') {
       return;
@@ -223,6 +251,7 @@ export default function Converter() {
   }, [activeJob?.id, activeJob?.status]);
 
   const resetForm = () => {
+    localStorage.removeItem(ACTIVE_JOB_KEY);
     setUploadedJob(null);
     setUploadError(null);
     setActiveJob(null);
@@ -308,6 +337,7 @@ export default function Converter() {
         throw new Error(body?.error || 'Could not start the conversion.');
       }
       setActiveJob(body);
+      localStorage.setItem(ACTIVE_JOB_KEY, body.id);
       setLogLines([`${new Date().toLocaleTimeString()} — ${body.status} — queued for conversion`]);
       push({ title: 'Conversion started', description: `${uploadedJob.originalFilename} is now converting.` });
       fetchJobs();
