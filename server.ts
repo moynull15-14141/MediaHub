@@ -6,8 +6,10 @@ import mediaRoutes from './server/routes/media.routes';
 import authRoutes from './server/routes/auth.routes';
 import converterRoutes from './server/routes/converter.routes';
 import imageRoutes from './server/routes/image.routes';
+import pdfRoutes from './server/routes/pdf.routes';
 import { startConverterCleanupScheduler } from './server/services/converter-cleanup.service';
 import { startImageCleanupScheduler } from './server/services/image-cleanup.service';
+import { startPdfCleanupScheduler } from './server/services/pdf-cleanup.service';
 
 async function startServer() {
   const app = express();
@@ -41,9 +43,11 @@ async function startServer() {
   app.use('/api/media', mediaRoutes);
   app.use('/api/converter', converterRoutes);
   app.use('/api/image', imageRoutes);
+  app.use('/api/pdf', pdfRoutes);
 
   startConverterCleanupScheduler();
   startImageCleanupScheduler();
+  startPdfCleanupScheduler();
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', uptime: process.uptime() });

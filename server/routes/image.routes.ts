@@ -7,6 +7,7 @@ import {
   upload,
   processHandler,
   metadataHandler,
+  statusHandler,
   listJobsHandler,
   downloadHandler,
   deleteHandler,
@@ -17,6 +18,7 @@ const router = Router();
 router.post('/upload', stampJobId, uploadMiddleware.single('file'), handleUploadError, upload);
 router.post('/process', processUploadMiddleware, handleUploadError, processHandler);
 router.get('/metadata/:id', metadataHandler);
+router.get('/status/:id', statusHandler);
 router.get('/jobs', listJobsHandler);
 router.get('/download/:id', downloadHandler);
 router.delete('/:id', deleteHandler);

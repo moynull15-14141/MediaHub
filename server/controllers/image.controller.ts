@@ -10,6 +10,7 @@ import {
   parseImageProcessOptions,
   processImageJob,
   getImageMetadataForJob,
+  getImageJobStatus,
   listImageJobs,
   getImageDownloadUrl,
   deleteImageJob,
@@ -150,6 +151,25 @@ export const metadataHandler = async (req: Request, res: Response) => {
     }
     console.error('Image metadata error:', err);
     res.status(500).json({ error: 'Failed to read image metadata' });
+  }
+};
+
+export const statusHandler = async (req: Request, res: Response) => {
+  const { id } = req.params;
+  if (!isValidImageJobId(id)) {
+    res.status(400).json({ error: 'Invalid job id' });
+    return;
+  }
+  try {
+    const job = await getImageJobStatus(id, getRequestOwner(req, res));
+    res.json(job);
+  } catch (err: any) {
+    if (err instanceof ImageError) {
+      res.status(err.status).json({ error: err.message });
+      return;
+    }
+    console.error('Image status error:', err);
+    res.status(500).json({ error: 'Failed to read job status' });
   }
 };
 

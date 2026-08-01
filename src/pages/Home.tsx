@@ -9,11 +9,27 @@ import { useAuth } from '@/src/components/auth/AuthContext';
 import { getApiBase } from '@/src/lib/api';
 import type { MediaMetadata } from '../../server/services/media.service';
 
+const LAST_ANALYSIS_KEY = 'mediahub-downloader-last-analysis';
+
+type StoredAnalysis = { url: string; metadata: MediaMetadata };
+
+// Navigating to another module (e.g. Converter) unmounts this page, so plain
+// useState would lose the analyzed link/metadata. Restoring from localStorage
+// keeps the last analysis visible when the user comes back.
+function readStoredAnalysis(): StoredAnalysis | null {
+  try {
+    const raw = localStorage.getItem(LAST_ANALYSIS_KEY);
+    return raw ? (JSON.parse(raw) as StoredAnalysis) : null;
+  } catch {
+    return null;
+  }
+}
+
 export default function Home() {
-  const [url, setUrl] = useState('');
+  const [url, setUrl] = useState(() => readStoredAnalysis()?.url ?? '');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [metadata, setMetadata] = useState<MediaMetadata | null>(null);
+  const [metadata, setMetadata] = useState<MediaMetadata | null>(() => readStoredAnalysis()?.metadata ?? null);
   const { push } = useToast();
   const { token } = useAuth();
 
@@ -46,6 +62,11 @@ export default function Home() {
 
       const data = body;
       setMetadata(data);
+      try {
+        localStorage.setItem(LAST_ANALYSIS_KEY, JSON.stringify({ url, metadata: data }));
+      } catch {
+        // Storage unavailable (private mode, quota) - not fatal, just skip persistence.
+      }
       push({ title: 'Analysis complete', description: 'Your media details are ready to review.' });
     } catch (err: any) {
       setError(err.message || 'An unexpected issue occurred while analyzing the media.');
@@ -122,6 +143,11 @@ export default function Home() {
     setUrl('');
     setMetadata(null);
     setError(null);
+    try {
+      localStorage.removeItem(LAST_ANALYSIS_KEY);
+    } catch {
+      // Storage unavailable - nothing to clean up.
+    }
     push({ title: 'Ready for new analysis', description: 'You can paste another link to analyze.' });
   };
 

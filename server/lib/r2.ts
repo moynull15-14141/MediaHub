@@ -60,3 +60,10 @@ export const getPresignedDownloadUrl = async (
   });
   return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
 };
+
+// Unlike getPresignedDownloadUrl, this doesn't force a download - used for
+// thumbnails/previews that should render inline in an <img> tag.
+export const getPresignedViewUrl = async (key: string, expiresInSeconds = 3600): Promise<string> => {
+  const command = new GetObjectCommand({ Bucket: BUCKET, Key: key });
+  return getSignedUrl(client, command, { expiresIn: expiresInSeconds });
+};

@@ -1,11 +1,13 @@
 # MediaHub
 
-Enterprise-grade media toolkit with two core features:
+Enterprise-grade media toolkit with several core features:
 
 - **Downloader** — fetch video/audio from supported sites via `yt-dlp`
 - **Converter** — upload a local video, re-encode it (format, resolution, codec, audio) with real-time progress via `ffmpeg`
+- **Image Toolkit** — convert, compress, resize, crop, rotate, watermark and inspect images via `sharp`
+- **PDF Studio** — merge, split, compress (quick or to an exact KB/MB target), convert PDF⇄JPG, rotate, delete/rearrange pages, and password-protect/unlock PDFs via `pdf-lib`, `ghostscript`, and `qpdf`
 
-Uploaded/converted video files are stored in **Cloudflare R2** (S3-compatible object storage), auto-expiring after a configurable TTL. Job metadata (status, progress, history) is stored in **PostgreSQL** via Prisma.
+Uploaded/converted files are stored in **Cloudflare R2** (S3-compatible object storage), auto-expiring after a configurable TTL. Job metadata (status, progress, history) is stored in **PostgreSQL** via Prisma.
 
 ## Architecture
 
@@ -24,7 +26,7 @@ The app is a single Express server ([server.ts](server.ts)) that serves both the
 
 ## Run locally without Docker
 
-**Prerequisites:** Node.js, a running Postgres instance, ffmpeg + yt-dlp on `PATH`
+**Prerequisites:** Node.js, a running Postgres instance, ffmpeg + yt-dlp + ghostscript + qpdf on `PATH`
 
 1. `npm install`
 2. Copy `.env.example` to `.env` and fill in `DATABASE_URL` plus the R2 credentials
@@ -42,6 +44,8 @@ The app is a single Express server ([server.ts](server.ts)) that serves both the
 | `R2_ENDPOINT` | yes | R2 S3 API endpoint (`https://<account-id>.r2.cloudflarestorage.com`) |
 | `MAX_UPLOAD_MB` | no (default `2048`) | Max upload size for the converter |
 | `CONVERTER_DOWNLOAD_TTL_HOURS` | no (default `24`) | Hours a converted file stays downloadable before auto-delete |
+| `PDF_MAX_UPLOAD_MB` | no (default `300`) | Max upload size per file in PDF Studio |
+| `PDF_DOWNLOAD_TTL_HOURS` | no (default `24`) | Hours a processed PDF/JPG stays downloadable before auto-delete |
 | `VITE_API_URL` | only for a split frontend deploy (e.g. Vercel) | Backend base URL the built frontend should call; leave unset for same-origin (self-hosted) deployments |
 
 ## Scripts

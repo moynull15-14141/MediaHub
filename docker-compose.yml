@@ -6,6 +6,8 @@ services:
       POSTGRES_USER: mediahub
       POSTGRES_PASSWORD: mediahub
       POSTGRES_DB: mediahub
+    ports:
+      - "5432:5432"
     volumes:
       - mediahub_pgdata:/var/lib/postgresql/data
     healthcheck:

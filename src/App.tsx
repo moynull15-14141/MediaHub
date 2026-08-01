@@ -9,6 +9,8 @@ import Home from './pages/Home';
 import History from './pages/History';
 import Converter from './pages/Converter';
 import ImageToolkit from './pages/ImageToolkit';
+import BackgroundEditor from './pages/BackgroundEditor';
+import PdfStudio from './pages/PdfStudio';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Register from './pages/Register';
@@ -22,6 +24,8 @@ export default function App() {
           <Route index element={<Home />} />
           <Route path="converter" element={<Converter />} />
           <Route path="image-toolkit" element={<ImageToolkit />} />
+          <Route path="background-editor" element={<BackgroundEditor />} />
+          <Route path="pdf-studio" element={<PdfStudio />} />
           <Route path="history" element={<History />} />
           <Route path="settings" element={<Settings />} />
           <Route path="cookies" element={<CookieUpload />} />

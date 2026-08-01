@@ -9,7 +9,7 @@ import {
   getImageInputKey,
   getImageOutputKey,
 } from '../lib/image-paths';
-import { uploadFileToR2, downloadFileFromR2, deleteFromR2, getPresignedDownloadUrl } from '../lib/r2';
+import { uploadFileToR2, downloadFileFromR2, deleteFromR2, getPresignedDownloadUrl, getPresignedViewUrl } from '../lib/r2';
 import { RequestOwner, ownerMatches } from '../lib/auth-helpers';
 import {
   probeImage,
@@ -234,6 +234,12 @@ export const getImageMetadataForJob = async (jobId: string, owner: RequestOwner)
   } finally {
     await fs.promises.rm(getImageJobDir(jobId), { recursive: true, force: true });
   }
+};
+
+export const getImageJobStatus = async (jobId: string, owner: RequestOwner) => {
+  const job = await findOwnedJob(jobId, owner);
+  const previewUrl = job.inputPath ? await getPresignedViewUrl(job.inputPath as string) : null;
+  return { ...toPublicImageJob(job), previewUrl };
 };
 
 export const listImageJobs = async (owner: RequestOwner) => {

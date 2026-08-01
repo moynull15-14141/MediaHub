@@ -13,6 +13,8 @@ import { getApiBase } from '@/src/lib/api';
 
 const ACCEPTED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp', '.avif', '.bmp', '.tiff', '.tif', '.gif', '.heic', '.heif'];
 
+const IMAGE_SESSION_KEY = 'mediahub-imagetoolkit-active-images';
+
 type OutputFormat = 'png' | 'jpeg' | 'webp' | 'avif';
 type Fit = 'fill' | 'contain' | 'cover' | 'inside' | 'outside';
 type ColorSpace = 'srgb' | 'cmyk' | 'b-w';
@@ -552,6 +554,74 @@ export default function ImageToolkit() {
     fetchJobs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Restore whatever images were uploaded if this page was unmounted (e.g.
+  // the user switched to another module) and comes back later - the files
+  // stay on the server, only the local view (and its blob preview URLs,
+  // which don't survive a remount) was lost.
+  const hasRestoredImagesRef = useRef(false);
+  useEffect(() => {
+    const raw = localStorage.getItem(IMAGE_SESSION_KEY);
+    if (!raw) {
+      hasRestoredImagesRef.current = true;
+      return;
+    }
+    let stored: { jobIds: string[]; activeIndex: number | null };
+    try {
+      stored = JSON.parse(raw);
+    } catch {
+      localStorage.removeItem(IMAGE_SESSION_KEY);
+      hasRestoredImagesRef.current = true;
+      return;
+    }
+    if (!Array.isArray(stored.jobIds) || stored.jobIds.length === 0) {
+      hasRestoredImagesRef.current = true;
+      return;
+    }
+    (async () => {
+      const restored: UploadedImage[] = [];
+      for (const jobId of stored.jobIds) {
+        try {
+          const res = await fetch(`${apiBase}/api/image/status/${jobId}`, { credentials: 'include' });
+          if (!res.ok) continue;
+          const data = await res.json();
+          restored.push({
+            jobId: data.id,
+            originalFilename: data.originalFilename,
+            inputFormat: data.inputFormat,
+            width: data.width,
+            height: data.height,
+            fileSizeBytes: data.fileSizeBytes,
+            previewUrl: data.previewUrl,
+          });
+        } catch {
+          // Skip images that no longer exist server-side (expired/deleted).
+        }
+      }
+      if (restored.length > 0) {
+        setImages(restored);
+        const idx = stored.activeIndex;
+        setActiveIndex(idx !== null && idx >= 0 && idx < restored.length ? idx : 0);
+      } else {
+        localStorage.removeItem(IMAGE_SESSION_KEY);
+      }
+      hasRestoredImagesRef.current = true;
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!hasRestoredImagesRef.current) return;
+    if (images.length === 0) {
+      localStorage.removeItem(IMAGE_SESSION_KEY);
+      return;
+    }
+    try {
+      localStorage.setItem(IMAGE_SESSION_KEY, JSON.stringify({ jobIds: images.map((img) => img.jobId), activeIndex }));
+    } catch {
+      // Storage unavailable - not fatal, just skip persistence.
+    }
+  }, [images, activeIndex]);
 
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {

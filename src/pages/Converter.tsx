@@ -177,7 +177,7 @@ export default function Converter() {
 
   const fetchJobs = async () => {
     try {
-      const res = await fetch(`${apiBase}/api/converter/jobs`, { credentials: 'include' });
+      const res = await fetch(`${apiBase}/api/converter/jobs`, { headers: { ...authHeaders }, credentials: 'include' });
       const data = await res.json();
       setJobs(Array.isArray(data) ? data : []);
     } catch {
@@ -192,7 +192,7 @@ export default function Converter() {
     const interval = setInterval(fetchJobs, 3000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [token]);
 
   // Restore whatever job was in progress if this page was unmounted (e.g. the
   // user switched to another tab/section) and comes back later - the job
@@ -200,7 +200,7 @@ export default function Converter() {
   useEffect(() => {
     const storedId = localStorage.getItem(ACTIVE_JOB_KEY);
     if (!storedId) return;
-    fetch(`${apiBase}/api/converter/status/${storedId}`, { credentials: 'include' })
+    fetch(`${apiBase}/api/converter/status/${storedId}`, { headers: { ...authHeaders }, credentials: 'include' })
       .then((res) => (res.ok ? res.json() : null))
       .then((data: ConversionJob | null) => {
         if (!data) {
@@ -227,7 +227,7 @@ export default function Converter() {
     }
     const interval = setInterval(async () => {
       try {
-        const res = await fetch(`${apiBase}/api/converter/status/${activeJob.id}`, { credentials: 'include' });
+        const res = await fetch(`${apiBase}/api/converter/status/${activeJob.id}`, { headers: { ...authHeaders }, credentials: 'include' });
         if (!res.ok) return;
         const data: ConversionJob = await res.json();
         setActiveJob(data);
@@ -350,7 +350,7 @@ export default function Converter() {
 
   const handleDownloadJob = async (jobId: string) => {
     try {
-      const res = await fetch(`${apiBase}/api/converter/download/${jobId}`, { credentials: 'include' });
+      const res = await fetch(`${apiBase}/api/converter/download/${jobId}`, { headers: { ...authHeaders }, credentials: 'include' });
       const body = await res.json().catch(() => null);
       if (!res.ok || !body?.url) {
         throw new Error(body?.error || 'The file could not be downloaded.');
@@ -368,7 +368,7 @@ export default function Converter() {
 
   const handleCancelOrDelete = async (jobId: string) => {
     try {
-      const res = await fetch(`${apiBase}/api/converter/${jobId}`, { method: 'DELETE', credentials: 'include' });
+      const res = await fetch(`${apiBase}/api/converter/${jobId}`, { method: 'DELETE', headers: { ...authHeaders }, credentials: 'include' });
       if (!res.ok && res.status !== 204) {
         const body = await res.json().catch(() => null);
         throw new Error(body?.error || 'Failed to remove the job.');

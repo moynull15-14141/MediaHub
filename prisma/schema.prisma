@@ -73,3 +73,52 @@ model ImageJob {
   @@index([userId])
   @@index([anonId])
 }
+
+enum PdfJobStatus {
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum PdfOperation {
+  MERGE
+  SPLIT
+  COMPRESS
+  PDF_TO_JPG
+  JPG_TO_PDF
+  ROTATE
+  DELETE_PAGES
+  REARRANGE
+  PROTECT
+  UNLOCK
+  EDIT_TEXT
+}
+
+model PdfJob {
+  id                  String       @id @default(uuid())
+  userId              String?
+  anonId              String?
+  operation           PdfOperation
+  originalFilename    String
+  inputFormat         String
+  outputFormat        String?
+  fileSizeBytes       BigInt?
+  outputFileSizeBytes BigInt?
+  pageCount           Int?
+  status              PdfJobStatus @default(QUEUED)
+  errorMessage        String?
+  resultMessage       String?
+  inputPaths          String[]
+  thumbnailPaths      String[]
+  outputPath          String?
+  createdAt           DateTime     @default(now())
+  completedAt         DateTime?
+  downloadExpiresAt   DateTime?
+  updatedAt           DateTime     @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([userId])
+  @@index([anonId])
+}
