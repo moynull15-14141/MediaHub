@@ -24,6 +24,8 @@ services:
     container_name: mediahub_downloader
     ports:
       - "3000:3000"
+    volumes:
+      - ./server/data:/app/server/data
     env_file:
       - .env
     environment:
