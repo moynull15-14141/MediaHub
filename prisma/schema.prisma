@@ -122,3 +122,454 @@ model PdfJob {
   @@index([userId])
   @@index([anonId])
 }
+
+enum WhatsappAccountStatus {
+  CONNECTED
+  DISCONNECTED
+  ERROR
+}
+
+enum WhatsappHealthStatus {
+  HEALTHY
+  WARNING
+  UNHEALTHY
+  UNKNOWN
+}
+
+model WhatsappAccount {
+  id                   String                @id @default(uuid())
+  userId               String                @unique
+  phoneNumberId        String
+  wabaId               String?
+  displayPhoneNumber   String?
+  businessName         String?
+  qualityRating        String?
+  healthStatus         WhatsappHealthStatus  @default(UNKNOWN)
+  status               WhatsappAccountStatus @default(DISCONNECTED)
+  accessTokenEncrypted String
+  lastErrorMessage     String?
+  lastSyncAt           DateTime?
+  defaultCountryCode   String?
+  autoSkipDuplicates   Boolean               @default(true)
+  rateLimitPerMinute   Int                   @default(20)
+  minDelaySeconds      Int                   @default(5)
+  maxDelaySeconds      Int                   @default(10)
+  maxRetries           Int                   @default(3)
+  maxConcurrentJobs    Int                   @default(3)
+  sendTimezone         String                @default("UTC")
+  batchSize            Int                   @default(1000)
+  retryDelaySeconds    Int                   @default(30)
+  businessManagerId    String?
+  messagingLimitTier   String?
+  tokenCreatedAt       DateTime?
+  tokenUpdatedAt       DateTime?
+  webhookVerified      Boolean               @default(false)
+  webhookLastPingAt    DateTime?
+  webhookLastDeliveryAt DateTime?
+  webhookLastReadAt    DateTime?
+  webhookLastErrorAt   DateTime?
+  webhookLastErrorMessage String?
+  workingHoursEnabled  Boolean               @default(false)
+  workingHours         Json?
+  defaultTemplateId    String?
+  defaultFooter        String?
+  defaultAttachmentKey String?
+  defaultAttachmentType String?
+  defaultAttachmentFilename String?
+  defaultAttachmentMimeType String?
+  companyName          String?
+  logoKey              String?
+  language             String                @default("en")
+  notifyBrowser        Boolean               @default(true)
+  notifyEmail          Boolean               @default(false)
+  notifyCampaignCompleted Boolean            @default(true)
+  notifyCampaignFailed Boolean               @default(true)
+  notifyWebhookOffline Boolean               @default(true)
+  notifyQualityDrop    Boolean               @default(true)
+  notifyApiFailure     Boolean               @default(true)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+}
+
+enum BlacklistReason {
+  BLOCKED
+  UNSUBSCRIBED
+  INVALID
+  FAILED
+}
+
+model BlacklistedNumber {
+  id          String          @id @default(uuid())
+  userId      String
+  phoneNumber String
+  reason      BlacklistReason
+  note        String?
+  createdAt   DateTime        @default(now())
+
+  @@unique([userId, phoneNumber])
+  @@index([userId])
+  @@index([userId, reason])
+}
+
+model AccountAuditLog {
+  id        String   @id @default(uuid())
+  userId    String
+  action    String
+  detail    String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}
+
+enum ContactStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+model Contact {
+  id                 String              @id @default(uuid())
+  userId             String
+  name               String
+  phoneNumber        String
+  countryCode        String
+  email              String?
+  company            String?
+  city               String?
+  country            String?
+  customFields       Json?
+  notes              String?
+  status             ContactStatus       @default(ACTIVE)
+  createdAt          DateTime            @default(now())
+  updatedAt          DateTime            @updatedAt
+  groups             ContactGroup[]
+  labels             ContactLabel[]
+  campaignRecipients CampaignRecipient[]
+
+  @@unique([userId, phoneNumber])
+  @@index([userId])
+  @@index([userId, status])
+}
+
+model Group {
+  id        String         @id @default(uuid())
+  userId    String
+  name      String
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  contacts  ContactGroup[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model Label {
+  id        String         @id @default(uuid())
+  userId    String
+  name      String
+  color     String         @default("#3b82f6")
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+  contacts  ContactLabel[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+model ContactGroup {
+  contactId String
+  groupId   String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  group     Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, groupId])
+  @@index([groupId])
+}
+
+model ContactLabel {
+  contactId String
+  labelId   String
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  label     Label   @relation(fields: [labelId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, labelId])
+  @@index([labelId])
+}
+
+enum ImportSource {
+  CSV
+  XLSX
+  MANUAL
+}
+
+model ContactImportBatch {
+  id             String       @id @default(uuid())
+  userId         String
+  filename       String?
+  source         ImportSource
+  totalRows      Int
+  importedCount  Int
+  duplicateCount Int
+  invalidCount   Int
+  skippedCount   Int
+  createdAt      DateTime     @default(now())
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+enum CampaignStatus {
+  DRAFT
+  READY
+  ARCHIVED
+}
+
+enum CampaignType {
+  PROMOTIONAL
+  UTILITY
+  ANNOUNCEMENT
+  OTHER
+}
+
+enum CampaignRecipientSource {
+  GROUP
+  LABEL
+  MANUAL
+}
+
+enum CampaignAttachmentType {
+  IMAGE
+  PDF
+  DOCUMENT
+  VIDEO
+}
+
+model Campaign {
+  id               String              @id @default(uuid())
+  userId           String
+  name             String
+  description      String?
+  type             CampaignType        @default(OTHER)
+  status           CampaignStatus      @default(DRAFT)
+  messageText      String
+  templateId       String?
+  sendMode         CampaignSendMode?
+  scheduledAt      DateTime?
+  timezone         String?
+  sendStatus       CampaignSendStatus  @default(NOT_STARTED)
+  queueStartedAt   DateTime?
+  queueCompletedAt DateTime?
+  queuePausedAt    DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+  recipients       CampaignRecipient[]
+  attachment       CampaignAttachment?
+  queueJobs        CampaignQueueJob[]
+
+  @@index([userId])
+  @@index([userId, status])
+  @@index([sendStatus])
+  @@index([sendStatus, scheduledAt])
+  @@index([userId, templateId])
+}
+
+enum CampaignSendMode {
+  NOW
+  SCHEDULED
+}
+
+enum CampaignSendStatus {
+  NOT_STARTED
+  SCHEDULED
+  QUEUED
+  SENDING
+  PAUSED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum QueueJobStatus {
+  PENDING
+  WAITING
+  SENDING
+  SENT
+  FAILED
+  RETRY
+  CANCELLED
+  SKIPPED
+}
+
+enum MessageDeliveryStatus {
+  UNKNOWN
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+model CampaignQueueJob {
+  id              String                @id @default(uuid())
+  campaignId      String
+  campaign        Campaign              @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contactId       String
+  recipientPhone  String
+  recipientName   String
+  renderedMessage String
+  status          QueueJobStatus        @default(PENDING)
+  deliveryStatus  MessageDeliveryStatus @default(UNKNOWN)
+  attempts        Int                   @default(0)
+  maxAttempts     Int                   @default(3)
+  nextAttemptAt   DateTime?
+  queuedAt        DateTime              @default(now())
+  startedAt       DateTime?
+  completedAt     DateTime?
+  failedAt        DateTime?
+  deliveredAt     DateTime?
+  readAt          DateTime?
+  errorCode       String?
+  errorMessage    String?
+  metaMessageId   String?               @unique
+  lockedAt        DateTime?
+  lockedBy        String?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  logs            CampaignSendLog[]
+
+  @@index([campaignId])
+  @@index([status])
+  @@index([campaignId, status])
+  @@index([nextAttemptAt])
+}
+
+model CampaignSendLog {
+  id           String           @id @default(uuid())
+  jobId        String
+  job          CampaignQueueJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  campaignId   String
+  attempt      Int
+  status       QueueJobStatus
+  durationMs   Int?
+  errorCode    String?
+  errorMessage String?
+  responseBody Json?
+  createdAt    DateTime         @default(now())
+
+  @@index([jobId])
+  @@index([campaignId])
+}
+
+model CampaignRecipient {
+  id         String                  @id @default(uuid())
+  campaignId String
+  contactId  String
+  source     CampaignRecipientSource
+  campaign   Campaign                @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact    Contact                 @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  createdAt  DateTime                @default(now())
+
+  @@unique([campaignId, contactId])
+  @@index([campaignId])
+  @@index([contactId])
+}
+
+model CampaignAttachment {
+  id               String                 @id @default(uuid())
+  campaignId       String                 @unique
+  campaign         Campaign               @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  type             CampaignAttachmentType
+  originalFilename String
+  mimeType         String
+  fileSizeBytes    BigInt
+  storageKey       String
+  createdAt        DateTime               @default(now())
+}
+
+enum TemplateCategory {
+  MARKETING
+  PROMOTION
+  REMINDER
+  GREETING
+  ANNOUNCEMENT
+  SUPPORT
+  INVOICE
+  OTP
+}
+
+model MessageTemplate {
+  id          String           @id @default(uuid())
+  userId      String
+  name        String
+  category    TemplateCategory @default(MARKETING)
+  messageText String
+  isFavorite  Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@unique([userId, name])
+  @@index([userId])
+  @@index([userId, category])
+}
+
+// Phase 6 (Analytics & Reporting). Every statistic elsewhere is computed live
+// from existing tables (Campaign, CampaignQueueJob, CampaignSendLog, Contact,
+// etc.) - these two models exist only because "when a report should run next"
+// and "what reports were generated" are genuinely new facts, not derivable
+// from anything already in the schema.
+enum ReportFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+}
+
+enum ReportDataset {
+  OVERVIEW
+  CAMPAIGNS
+  CONTACTS
+  TEMPLATES
+  QUEUE
+  API
+  WEBHOOK
+}
+
+enum ReportFormat {
+  PDF
+  XLSX
+  CSV
+}
+
+model ScheduledReport {
+  id        String          @id @default(uuid())
+  userId    String
+  name      String
+  frequency ReportFrequency
+  dataset   ReportDataset
+  format    ReportFormat
+  filters   Json?
+  enabled   Boolean         @default(true)
+  lastRunAt DateTime?
+  nextRunAt DateTime
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+
+  @@index([userId])
+  @@index([enabled, nextRunAt])
+}
+
+model ReportHistory {
+  id                String        @id @default(uuid())
+  userId            String
+  scheduledReportId String?
+  name              String
+  dataset           ReportDataset
+  format            ReportFormat
+  filters           Json?
+  fileSizeBytes     Int
+  storageKey        String
+  generatedBy       String
+  createdAt         DateTime      @default(now())
+
+  @@index([userId])
+  @@index([userId, createdAt])
+}

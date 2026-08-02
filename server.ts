@@ -7,15 +7,27 @@ import authRoutes from './server/routes/auth.routes';
 import converterRoutes from './server/routes/converter.routes';
 import imageRoutes from './server/routes/image.routes';
 import pdfRoutes from './server/routes/pdf.routes';
+import whatsappRoutes from './server/routes/whatsapp.routes';
 import { startConverterCleanupScheduler } from './server/services/converter-cleanup.service';
 import { startImageCleanupScheduler } from './server/services/image-cleanup.service';
 import { startPdfCleanupScheduler } from './server/services/pdf-cleanup.service';
+import { startCampaignQueueWorker, stopCampaignQueueWorker } from './server/services/campaign-queue-worker.service';
+import { startReportScheduler, stopReportScheduler } from './server/services/report-scheduler.service';
+import { webhookVerifyHandler, webhookReceiveHandler } from './server/controllers/campaign-webhook.controller';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  app.use(express.json());
+  // Meta's webhook signature check needs the raw request body, which the
+  // default JSON parsing discards - stash it alongside the parsed body.
+  app.use(
+    express.json({
+      verify: (req, _res, buf) => {
+        (req as any).rawBody = buf.toString('utf8');
+      },
+    }),
+  );
 
   // CORS support for a frontend deployed on a different origin (e.g. Vercel).
   // The origin is reflected (rather than '*') and credentials are allowed so
@@ -38,16 +50,28 @@ async function startServer() {
     next();
   });
 
+  // Meta calls these directly (no Authorization header it could send), so
+  // they're intentionally outside the authenticated whatsapp router. Must be
+  // registered before that router is mounted below - otherwise the router's
+  // internal router.use(requireAuth) (a path-less middleware that runs for
+  // every /api/whatsapp/* request it receives, matched or not) would 401
+  // this request before Express ever got a chance to fall through to these.
+  app.get('/api/whatsapp/webhook', webhookVerifyHandler);
+  app.post('/api/whatsapp/webhook', webhookReceiveHandler);
+
   // API Routes
   app.use('/api/auth', authRoutes);
   app.use('/api/media', mediaRoutes);
   app.use('/api/converter', converterRoutes);
   app.use('/api/image', imageRoutes);
   app.use('/api/pdf', pdfRoutes);
+  app.use('/api/whatsapp', whatsappRoutes);
 
   startConverterCleanupScheduler();
   startImageCleanupScheduler();
   startPdfCleanupScheduler();
+  startCampaignQueueWorker();
+  startReportScheduler();
 
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', uptime: process.uptime() });
@@ -68,9 +92,18 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const httpServer = app.listen(PORT, '0.0.0.0', () => {
     console.log(`Enterprise MediaHub Server running on http://0.0.0.0:${PORT}`);
   });
+
+  const shutdown = async (signal: string) => {
+    console.log(`${signal} received, shutting down gracefully...`);
+    await stopCampaignQueueWorker();
+    await stopReportScheduler();
+    httpServer.close(() => process.exit(0));
+  };
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
 }
 
 startServer();

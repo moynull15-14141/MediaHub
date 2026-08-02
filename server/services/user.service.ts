@@ -5,7 +5,7 @@ import crypto from 'crypto';
 const usersFile = path.join(process.cwd(), 'server', 'data', 'users.json');
 const cookiesDir = path.join(process.cwd(), 'server', 'data', 'cookies');
 const jwtSecret = process.env.JWT_SECRET || 'mediahub-local-secret';
-const tokenLifetimeSeconds = 60 * 60 * 24 * 7;
+export const tokenLifetimeSeconds = 60 * 60 * 24 * 7;
 
 export interface UserRecord {
   id: string;

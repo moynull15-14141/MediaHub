@@ -5,6 +5,7 @@
 
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AppLayout } from './components/layout/AppLayout';
+import { RequireAuth } from './components/auth/RequireAuth';
 import Home from './pages/Home';
 import History from './pages/History';
 import Converter from './pages/Converter';
@@ -15,6 +16,15 @@ import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import CookieUpload from './pages/CookieUpload';
+import WhatsappDashboard from './pages/whatsapp/WhatsappDashboard';
+import WhatsappCampaigns from './pages/whatsapp/WhatsappCampaigns';
+import WhatsappTemplates from './pages/whatsapp/WhatsappTemplates';
+import WhatsappAccounts from './pages/whatsapp/WhatsappAccounts';
+import WhatsappContacts from './pages/whatsapp/WhatsappContacts';
+import WhatsappGroups from './pages/whatsapp/WhatsappGroups';
+import WhatsappLabels from './pages/whatsapp/WhatsappLabels';
+import WhatsappSettings from './pages/whatsapp/WhatsappSettings';
+import WhatsappAnalytics from './pages/whatsapp/WhatsappAnalytics';
 
 export default function App() {
   return (
@@ -29,6 +39,17 @@ export default function App() {
           <Route path="history" element={<History />} />
           <Route path="settings" element={<Settings />} />
           <Route path="cookies" element={<CookieUpload />} />
+          <Route element={<RequireAuth />}>
+            <Route path="whatsapp" element={<WhatsappDashboard />} />
+            <Route path="whatsapp/campaigns" element={<WhatsappCampaigns />} />
+            <Route path="whatsapp/templates" element={<WhatsappTemplates />} />
+            <Route path="whatsapp/accounts" element={<WhatsappAccounts />} />
+            <Route path="whatsapp/contacts" element={<WhatsappContacts />} />
+            <Route path="whatsapp/groups" element={<WhatsappGroups />} />
+            <Route path="whatsapp/labels" element={<WhatsappLabels />} />
+            <Route path="whatsapp/settings" element={<WhatsappSettings />} />
+            <Route path="whatsapp/analytics" element={<WhatsappAnalytics />} />
+          </Route>
         </Route>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
