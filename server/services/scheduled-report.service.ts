@@ -55,23 +55,23 @@ const validateScheduleInput = (body: any) => {
   };
 };
 
-export const listScheduledReports = async (userId: string) => {
-  const reports = await prisma.scheduledReport.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
+export const listScheduledReports = async (workspaceId: string) => {
+  const reports = await prisma.scheduledReport.findMany({ where: { workspaceId }, orderBy: { createdAt: 'desc' } });
   return reports.map(toPublicScheduledReport);
 };
 
-export const createScheduledReport = async (userId: string, body: any) => {
+export const createScheduledReport = async (workspaceId: string, userId: string, body: any) => {
   const input = validateScheduleInput(body);
   const report = await prisma.scheduledReport.create({
-    data: { userId, ...input, nextRunAt: computeNextRunAt(input.frequency, new Date()) },
+    data: { workspaceId, userId, ...input, nextRunAt: computeNextRunAt(input.frequency, new Date()) },
   });
   await logAudit(userId, 'SCHEDULED_REPORT_CREATED', report.name);
   return toPublicScheduledReport(report);
 };
 
-export const updateScheduledReport = async (userId: string, id: string, body: any) => {
+export const updateScheduledReport = async (workspaceId: string, id: string, body: any) => {
   const existing = await prisma.scheduledReport.findUnique({ where: { id } });
-  if (!existing || existing.userId !== userId) throw new ReportError('Scheduled report not found', 404);
+  if (!existing || existing.workspaceId !== workspaceId) throw new ReportError('Scheduled report not found', 404);
   const input = validateScheduleInput({ ...existing, ...body });
   const frequencyChanged = input.frequency !== existing.frequency;
   const report = await prisma.scheduledReport.update({
@@ -81,9 +81,9 @@ export const updateScheduledReport = async (userId: string, id: string, body: an
   return toPublicScheduledReport(report);
 };
 
-export const deleteScheduledReport = async (userId: string, id: string) => {
+export const deleteScheduledReport = async (workspaceId: string, id: string) => {
   const existing = await prisma.scheduledReport.findUnique({ where: { id } });
-  if (!existing || existing.userId !== userId) throw new ReportError('Scheduled report not found', 404);
+  if (!existing || existing.workspaceId !== workspaceId) throw new ReportError('Scheduled report not found', 404);
   await prisma.scheduledReport.delete({ where: { id } });
 };
 
@@ -92,8 +92,12 @@ const reportStorageKey = (userId: string, id: string, extension: string) => `wha
 // The single generation path used both by "Generate now" (manual, from the
 // Reports tab) and the scheduler's tick loop below - a scheduled report and
 // an on-demand export of the same dataset/filters produce byte-identical
-// output because they call the exact same functions.
+// output because they call the exact same functions. Analytics data itself
+// (buildExportTable) is still computed per-userId (not yet workspace-scoped
+// in this pass); only the ReportHistory record this produces is
+// workspace-scoped, matching Contacts/Campaigns/Templates/Groups/Labels.
 export const generateReport = async (
+  workspaceId: string,
   userId: string,
   options: { name: string; dataset: ExportDataset; format: ExportFormat; filters: AnalyticsFilters; scheduledReportId?: string },
 ) => {
@@ -104,10 +108,11 @@ export const generateReport = async (
   const storageKey = reportStorageKey(userId, id, extension);
   await uploadBufferToR2(buffer, storageKey, contentType);
 
-  const generatedBy = findUserById(userId)?.email ?? 'system';
+  const generatedBy = (await findUserById(userId))?.email ?? 'system';
   const history = await prisma.reportHistory.create({
     data: {
       id,
+      workspaceId,
       userId,
       scheduledReportId: options.scheduledReportId,
       name: options.name,
@@ -123,15 +128,15 @@ export const generateReport = async (
   return history;
 };
 
-export const listReportHistory = async (userId: string, page: number, pageSize: number) => {
+export const listReportHistory = async (workspaceId: string, page: number, pageSize: number) => {
   const [entries, total] = await Promise.all([
     prisma.reportHistory.findMany({
-      where: { userId },
+      where: { workspaceId },
       orderBy: { createdAt: 'desc' },
       skip: (page - 1) * pageSize,
       take: pageSize,
     }),
-    prisma.reportHistory.count({ where: { userId } }),
+    prisma.reportHistory.count({ where: { workspaceId } }),
   ]);
   return {
     entries: entries.map((e) => ({
@@ -151,18 +156,18 @@ export const listReportHistory = async (userId: string, page: number, pageSize: 
   };
 };
 
-export const getReportDownloadUrl = async (userId: string, id: string): Promise<{ url: string; filename: string }> => {
+export const getReportDownloadUrl = async (workspaceId: string, id: string): Promise<{ url: string; filename: string }> => {
   const entry = await prisma.reportHistory.findUnique({ where: { id } });
-  if (!entry || entry.userId !== userId) throw new ReportError('Report not found', 404);
+  if (!entry || entry.workspaceId !== workspaceId) throw new ReportError('Report not found', 404);
   const extension = entry.format.toLowerCase();
   const filename = `${entry.name.replace(/[^a-z0-9-_]+/gi, '-')}.${extension}`;
   const url = await getPresignedDownloadUrl(entry.storageKey, filename);
   return { url, filename };
 };
 
-export const deleteReportHistory = async (userId: string, id: string) => {
+export const deleteReportHistory = async (workspaceId: string, id: string) => {
   const entry = await prisma.reportHistory.findUnique({ where: { id } });
-  if (!entry || entry.userId !== userId) throw new ReportError('Report not found', 404);
+  if (!entry || entry.workspaceId !== workspaceId) throw new ReportError('Report not found', 404);
   await deleteFromR2([entry.storageKey]);
   await prisma.reportHistory.delete({ where: { id } });
 };

@@ -3,6 +3,7 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { getUserId } from '../lib/require-auth';
+import { getWorkspaceId } from '../lib/require-workspace';
 import { getCampaignAttachmentDir, isValidCampaignId } from '../lib/whatsapp-campaign-paths';
 import {
   listCampaigns,
@@ -35,7 +36,7 @@ const handleCampaignError = (err: any, res: Response, fallback: string) => {
 export const listHandler = async (req: Request, res: Response) => {
   try {
     const { page, pageSize, search, status } = req.query;
-    const result = await listCampaigns(getUserId(req), {
+    const result = await listCampaigns(getWorkspaceId(req), {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
       search: typeof search === 'string' ? search : undefined,
@@ -49,7 +50,7 @@ export const listHandler = async (req: Request, res: Response) => {
 
 export const getHandler = async (req: Request, res: Response) => {
   try {
-    const campaign = await getCampaign(getUserId(req), req.params.id);
+    const campaign = await getCampaign(getWorkspaceId(req), req.params.id);
     res.json(campaign);
   } catch (err) {
     handleCampaignError(err, res, 'Failed to load campaign');
@@ -58,7 +59,7 @@ export const getHandler = async (req: Request, res: Response) => {
 
 export const createHandler = async (req: Request, res: Response) => {
   try {
-    const campaign = await createCampaign(getUserId(req), req.body);
+    const campaign = await createCampaign(getWorkspaceId(req), getUserId(req), req.body);
     res.status(201).json(campaign);
   } catch (err) {
     handleCampaignError(err, res, 'Failed to create campaign');
@@ -67,7 +68,7 @@ export const createHandler = async (req: Request, res: Response) => {
 
 export const updateHandler = async (req: Request, res: Response) => {
   try {
-    const campaign = await updateCampaign(getUserId(req), req.params.id, req.body);
+    const campaign = await updateCampaign(getWorkspaceId(req), req.params.id, req.body);
     res.json(campaign);
   } catch (err) {
     handleCampaignError(err, res, 'Failed to update campaign');
@@ -76,7 +77,7 @@ export const updateHandler = async (req: Request, res: Response) => {
 
 export const deleteHandler = async (req: Request, res: Response) => {
   try {
-    await deleteCampaign(getUserId(req), req.params.id);
+    await deleteCampaign(getWorkspaceId(req), req.params.id);
     res.status(204).send();
   } catch (err) {
     handleCampaignError(err, res, 'Failed to delete campaign');
@@ -85,7 +86,7 @@ export const deleteHandler = async (req: Request, res: Response) => {
 
 export const duplicateHandler = async (req: Request, res: Response) => {
   try {
-    const campaign = await duplicateCampaign(getUserId(req), req.params.id);
+    const campaign = await duplicateCampaign(getWorkspaceId(req), getUserId(req), req.params.id);
     res.status(201).json(campaign);
   } catch (err) {
     handleCampaignError(err, res, 'Failed to duplicate campaign');
@@ -94,7 +95,7 @@ export const duplicateHandler = async (req: Request, res: Response) => {
 
 export const updateStatusHandler = async (req: Request, res: Response) => {
   try {
-    const campaign = await updateCampaignStatus(getUserId(req), req.params.id, req.body?.status);
+    const campaign = await updateCampaignStatus(getWorkspaceId(req), req.params.id, req.body?.status);
     res.json(campaign);
   } catch (err) {
     handleCampaignError(err, res, 'Failed to update campaign status');
@@ -162,7 +163,7 @@ export const attachmentUploadHandler = async (req: Request, res: Response) => {
   }
   try {
     const ext = path.extname(file.originalname).toLowerCase();
-    const attachment = await setAttachment(getUserId(req), campaignId, {
+    const attachment = await setAttachment(getWorkspaceId(req), campaignId, {
       localPath: file.path,
       originalFilename: file.originalname.slice(0, 255),
       ext,
@@ -179,7 +180,7 @@ export const attachmentUploadHandler = async (req: Request, res: Response) => {
 
 export const attachmentRemoveHandler = async (req: Request, res: Response) => {
   try {
-    await removeAttachment(getUserId(req), req.params.id);
+    await removeAttachment(getWorkspaceId(req), req.params.id);
     res.status(204).send();
   } catch (err) {
     handleCampaignError(err, res, 'Failed to remove attachment');
@@ -188,7 +189,7 @@ export const attachmentRemoveHandler = async (req: Request, res: Response) => {
 
 export const applyDefaultAttachmentHandler = async (req: Request, res: Response) => {
   try {
-    const attachment = await applyDefaultAttachment(getUserId(req), req.params.id);
+    const attachment = await applyDefaultAttachment(getWorkspaceId(req), req.params.id);
     res.json(attachment);
   } catch (err) {
     handleCampaignError(err, res, 'Failed to apply default attachment');

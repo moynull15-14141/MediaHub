@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
 import { getUserId } from '../lib/require-auth';
+import { getWorkspaceId } from '../lib/require-workspace';
 import { verifyAuthToken } from '../services/user.service';
+import { getCurrentWorkspaceForUser } from '../services/workspace.service';
+import { hasPermission } from '../services/permission.service';
+import { logAudit } from '../services/whatsapp-audit.service';
 import {
   startCampaignNow,
   scheduleCampaign,
@@ -25,7 +29,7 @@ const handleQueueError = (err: any, res: Response, fallback: string) => {
 
 export const sendNowHandler = async (req: Request, res: Response) => {
   try {
-    const campaign = await startCampaignNow(getUserId(req), req.params.id);
+    const campaign = await startCampaignNow(getWorkspaceId(req), getUserId(req), req.params.id);
     res.json(campaign);
   } catch (err) {
     handleQueueError(err, res, 'Failed to start sending campaign');
@@ -34,7 +38,7 @@ export const sendNowHandler = async (req: Request, res: Response) => {
 
 export const scheduleHandler = async (req: Request, res: Response) => {
   try {
-    const campaign = await scheduleCampaign(getUserId(req), req.params.id, req.body);
+    const campaign = await scheduleCampaign(getWorkspaceId(req), getUserId(req), req.params.id, req.body);
     res.json(campaign);
   } catch (err) {
     handleQueueError(err, res, 'Failed to schedule campaign');
@@ -43,7 +47,7 @@ export const scheduleHandler = async (req: Request, res: Response) => {
 
 export const pauseHandler = async (req: Request, res: Response) => {
   try {
-    const campaign = await pauseCampaign(getUserId(req), req.params.id);
+    const campaign = await pauseCampaign(getWorkspaceId(req), getUserId(req), req.params.id);
     res.json(campaign);
   } catch (err) {
     handleQueueError(err, res, 'Failed to pause campaign');
@@ -52,7 +56,7 @@ export const pauseHandler = async (req: Request, res: Response) => {
 
 export const resumeHandler = async (req: Request, res: Response) => {
   try {
-    const campaign = await resumeCampaign(getUserId(req), req.params.id);
+    const campaign = await resumeCampaign(getWorkspaceId(req), getUserId(req), req.params.id);
     res.json(campaign);
   } catch (err) {
     handleQueueError(err, res, 'Failed to resume campaign');
@@ -61,7 +65,7 @@ export const resumeHandler = async (req: Request, res: Response) => {
 
 export const cancelHandler = async (req: Request, res: Response) => {
   try {
-    const campaign = await cancelQueue(getUserId(req), req.params.id);
+    const campaign = await cancelQueue(getWorkspaceId(req), getUserId(req), req.params.id);
     res.json(campaign);
   } catch (err) {
     handleQueueError(err, res, 'Failed to cancel campaign');
@@ -70,7 +74,7 @@ export const cancelHandler = async (req: Request, res: Response) => {
 
 export const progressHandler = async (req: Request, res: Response) => {
   try {
-    const progress = await getCampaignProgress(getUserId(req), req.params.id);
+    const progress = await getCampaignProgress(getWorkspaceId(req), req.params.id);
     res.json(progress);
   } catch (err) {
     handleQueueError(err, res, 'Failed to load progress');
@@ -80,7 +84,7 @@ export const progressHandler = async (req: Request, res: Response) => {
 export const logsHandler = async (req: Request, res: Response) => {
   try {
     const { page, pageSize } = req.query;
-    const result = await getCampaignLogs(getUserId(req), req.params.id, {
+    const result = await getCampaignLogs(getWorkspaceId(req), req.params.id, {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
     });
@@ -92,7 +96,9 @@ export const logsHandler = async (req: Request, res: Response) => {
 
 // EventSource can't set an Authorization header, so this one endpoint also
 // accepts the JWT as a query param, validated with the same verifyAuthToken
-// used everywhere else.
+// used everywhere else. It's registered before the router-wide requireAuth/
+// resolveWorkspace middleware (see whatsapp.routes.ts), so it resolves the
+// workspace itself the same way that middleware does.
 export const eventsHandler = async (req: Request, res: Response) => {
   const campaignId = req.params.id;
   const queryToken = typeof req.query.token === 'string' ? req.query.token : undefined;
@@ -103,8 +109,20 @@ export const eventsHandler = async (req: Request, res: Response) => {
     return;
   }
 
+  const member = await getCurrentWorkspaceForUser(payload.sub);
+  if (!member) {
+    res.status(403).json({ error: 'No workspace found for this account' });
+    return;
+  }
+  const workspaceId = member.workspaceId;
+  if (!(await hasPermission(workspaceId, payload.sub, member.role, 'campaigns:read'))) {
+    void logAudit(payload.sub, 'PERMISSION_DENIED', `campaigns:read on ${req.method} ${req.originalUrl}`);
+    res.status(403).json({ error: 'You do not have permission to perform this action' });
+    return;
+  }
+
   try {
-    const progress = await getCampaignProgress(payload.sub, campaignId);
+    const progress = await getCampaignProgress(workspaceId, campaignId);
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -117,7 +135,7 @@ export const eventsHandler = async (req: Request, res: Response) => {
 
     const onProgress = (updatedCampaignId: string) => {
       if (updatedCampaignId !== campaignId) return;
-      getCampaignProgress(payload.sub, campaignId)
+      getCampaignProgress(workspaceId, campaignId)
         .then(send)
         .catch(() => {});
     };

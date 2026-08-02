@@ -18,7 +18,7 @@ export class WhatsappAccountError extends Error {
 
 const MAX_TEXT_LENGTH = 128;
 
-const qualityToHealth = (qualityRating: string | null): 'HEALTHY' | 'WARNING' | 'UNHEALTHY' | 'UNKNOWN' => {
+export const qualityToHealth = (qualityRating: string | null): 'HEALTHY' | 'WARNING' | 'UNHEALTHY' | 'UNKNOWN' => {
   switch ((qualityRating || '').toUpperCase()) {
     case 'GREEN':
       return 'HEALTHY';
@@ -72,6 +72,21 @@ export const toPublicAccount = (account: any) => ({
   notifyWebhookOffline: account.notifyWebhookOffline,
   notifyQualityDrop: account.notifyQualityDrop,
   notifyApiFailure: account.notifyApiFailure,
+  // Phase B.1 - Meta Embedded Signup fields, additive to the existing shape
+  // above (every pre-existing consumer of toPublicAccount ignores keys it
+  // doesn't recognize, so this cannot break AccountSettingsTab.tsx or any
+  // other caller built before this phase).
+  connectionSource: account.connectionSource,
+  connectionHealth: account.connectionHealth,
+  verifiedName: account.verifiedName,
+  metaBusinessId: account.metaBusinessId,
+  metaBusinessName: account.metaBusinessName,
+  businessVerificationStatus: account.businessVerificationStatus,
+  accountReviewStatus: account.accountReviewStatus,
+  grantedScopes: account.grantedScopes,
+  tokenExpiresAt: account.tokenExpiresAt,
+  lastValidationAt: account.lastValidationAt,
+  lastValidationStatus: account.lastValidationStatus,
   createdAt: account.createdAt,
   updatedAt: account.updatedAt,
 });
@@ -99,7 +114,7 @@ const validateConnectInput = (body: any): ConnectAccountInput => {
   return { phoneNumberId, accessToken, wabaId: wabaId || undefined };
 };
 
-export const connectAccount = async (userId: string, body: any) => {
+export const connectAccount = async (workspaceId: string, userId: string, body: any) => {
   const input = validateConnectInput(body);
 
   let details;
@@ -117,6 +132,7 @@ export const connectAccount = async (userId: string, body: any) => {
     where: { userId },
     create: {
       userId,
+      workspaceId,
       phoneNumberId: input.phoneNumberId,
       wabaId: input.wabaId,
       displayPhoneNumber: details.displayPhoneNumber,

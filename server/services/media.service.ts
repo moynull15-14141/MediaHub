@@ -52,13 +52,13 @@ export const getYouTubeCookiePath = () => {
   return undefined;
 };
 
-export const getUserCookiePathFromToken = (token?: string) => {
+export const getUserCookiePathFromToken = async (token?: string) => {
   if (!token) return undefined;
   const payload = verifyAuthToken(token);
   if (!payload) return undefined;
-  const user = findUserById(payload.sub);
+  const user = await findUserById(payload.sub);
   if (!user) return undefined;
-  return user.cookiePath;
+  return user.cookiePath ?? undefined;
 };
 
 const buildYtdlpOptions = (cookiePath?: string) => {
@@ -199,7 +199,7 @@ export const extractMetadata = async (url: string, authToken?: string): Promise<
     } else {
       console.log('Attempting to extract metadata for:', url);
     }
-    const cookiePath = getUserCookiePathFromToken(authToken);
+    const cookiePath = await getUserCookiePathFromToken(authToken);
     const output: any = await runYtdlpJson(normalizedUrl, cookiePath);
     console.log('Metadata extraction successful:', output.title);
 

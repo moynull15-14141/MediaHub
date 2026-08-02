@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import path from 'path';
 import { getUserId } from '../lib/require-auth';
+import { getWorkspaceId } from '../lib/require-workspace';
 import { parseImportFile, validateRows, commitImport, ContactImportError, ImportRow } from '../services/contact-import.service';
 
 const ALLOWED_EXTENSIONS = new Set(['.csv', '.xlsx', '.xls']);
@@ -43,7 +44,7 @@ export const previewHandler = async (req: Request, res: Response) => {
   }
   try {
     const { source, rows: rawRows } = parseImportFile(file.buffer, file.originalname);
-    const preview = await validateRows(getUserId(req), rawRows);
+    const preview = await validateRows(getWorkspaceId(req), rawRows);
     res.json({ ...preview, source, filename: file.originalname });
   } catch (err) {
     if (err instanceof ContactImportError) {
@@ -66,7 +67,7 @@ export const commitHandler = async (req: Request, res: Response) => {
     return;
   }
   try {
-    const result = await commitImport(getUserId(req), rows as ImportRow[], {
+    const result = await commitImport(getWorkspaceId(req), getUserId(req), rows as ImportRow[], {
       filename: typeof filename === 'string' ? filename.slice(0, 255) : undefined,
       source,
     });

@@ -1,33 +1,15 @@
 import { Request, Response } from 'express';
 import { extractMetadata, getDownloadHistory, saveToHistory, normalizeUrl, getUserCookiePathFromToken, resolveDirectMediaUrl } from '../services/media.service';
 import { getRequestOwner } from '../lib/auth-helpers';
+import { getClientIp, getDeviceInfo } from '../lib/request-info';
 import youtubedl from 'youtube-dl-exec';
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
-const getClientIp = (req: Request) => {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string') {
-    return forwarded.split(',')[0].trim();
-  }
-  return req.socket.remoteAddress || 'unknown';
-};
-
-const getDeviceInfo = (req: Request) => {
-  const ua = String(req.headers['user-agent'] || '');
-  const lower = ua.toLowerCase();
-  if (/mobile|iphone|ipod|android/i.test(lower)) return { deviceType: 'Mobile', platform: /iphone|ipad|ipod/i.test(lower) ? 'iOS' : 'Android' };
-  if (/tablet/i.test(lower)) return { deviceType: 'Tablet', platform: /ipad/i.test(lower) ? 'iOS' : 'Tablet' };
-  if (/windows/i.test(lower)) return { deviceType: 'Desktop', platform: 'Windows' };
-  if (/macintosh|mac os x/i.test(lower)) return { deviceType: 'Desktop', platform: 'Mac' };
-  if (/linux/i.test(lower)) return { deviceType: 'Desktop', platform: 'Linux' };
-  return { deviceType: 'Desktop', platform: 'Unknown' };
-};
-
-const buildYtdlpDownloadOptions = (token?: string) => {
-  const cookiePath = getUserCookiePathFromToken(token);
+const buildYtdlpDownloadOptions = async (token?: string) => {
+  const cookiePath = await getUserCookiePathFromToken(token);
   const options: Record<string, any> = {
     noWarnings: true,
     noCheckCertificates: true,
@@ -62,7 +44,7 @@ const runYtdlp = async (url: string, options: Record<string, any>, token?: strin
   const normalized = normalizeUrl(url);
   console.log('Running youtube-dl-exec with url:', normalized, 'options:', options, 'tokenPresent:', Boolean(token));
   await youtubedl(normalized, {
-    ...buildYtdlpDownloadOptions(token),
+    ...(await buildYtdlpDownloadOptions(token)),
     ...options,
   });
 };
@@ -213,7 +195,7 @@ export const downloadMedia = async (req: Request, res: Response) => {
       let imageResponse = await fetch(url);
       const initialContentType = imageResponse.headers.get('content-type') || '';
       if (!imageResponse.ok || !initialContentType.startsWith('image/')) {
-        const resolvedUrl = await resolveDirectMediaUrl(url, getUserCookiePathFromToken(authToken));
+        const resolvedUrl = await resolveDirectMediaUrl(url, await getUserCookiePathFromToken(authToken));
         if (!resolvedUrl) {
           throw new Error('Could not resolve a direct image URL from this link');
         }

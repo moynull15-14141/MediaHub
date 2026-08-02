@@ -17,16 +17,16 @@ export const toPublicGroup = (group: any) => ({
   updatedAt: group.updatedAt,
 });
 
-const findOwnedGroup = async (groupId: string, userId: string) => {
+const findOwnedGroup = async (groupId: string, workspaceId: string) => {
   const group = await prisma.group.findUnique({ where: { id: groupId } });
-  if (!group || group.userId !== userId) throw new GroupError('Group not found', 404);
+  if (!group || group.workspaceId !== workspaceId) throw new GroupError('Group not found', 404);
   return group;
 };
 
-export const listGroups = async (userId: string, search?: string) => {
+export const listGroups = async (workspaceId: string, search?: string) => {
   const groups = await prisma.group.findMany({
     where: {
-      userId,
+      workspaceId,
       ...(search?.trim() ? { name: { contains: search.trim(), mode: 'insensitive' } } : {}),
     },
     include: { _count: { select: { contacts: true } } },
@@ -35,27 +35,27 @@ export const listGroups = async (userId: string, search?: string) => {
   return groups.map(toPublicGroup);
 };
 
-export const createGroup = async (userId: string, body: any) => {
+export const createGroup = async (workspaceId: string, userId: string, body: any) => {
   const name = sanitizeText(body?.name, NAME_MAX);
   if (!name) throw new GroupError('Group name is required', 400);
-  const existing = await prisma.group.findUnique({ where: { userId_name: { userId, name } } });
+  const existing = await prisma.group.findUnique({ where: { workspaceId_name: { workspaceId, name } } });
   if (existing) throw new GroupError('A group with this name already exists', 409);
-  const group = await prisma.group.create({ data: { userId, name } });
+  const group = await prisma.group.create({ data: { workspaceId, userId, name } });
   return toPublicGroup(group);
 };
 
-export const renameGroup = async (userId: string, groupId: string, body: any) => {
-  await findOwnedGroup(groupId, userId);
+export const renameGroup = async (workspaceId: string, groupId: string, body: any) => {
+  await findOwnedGroup(groupId, workspaceId);
   const name = sanitizeText(body?.name, NAME_MAX);
   if (!name) throw new GroupError('Group name is required', 400);
-  const existing = await prisma.group.findUnique({ where: { userId_name: { userId, name } } });
+  const existing = await prisma.group.findUnique({ where: { workspaceId_name: { workspaceId, name } } });
   if (existing && existing.id !== groupId) throw new GroupError('A group with this name already exists', 409);
   const group = await prisma.group.update({ where: { id: groupId }, data: { name } });
   return toPublicGroup(group);
 };
 
-export const deleteGroup = async (userId: string, groupId: string) => {
-  await findOwnedGroup(groupId, userId);
+export const deleteGroup = async (workspaceId: string, groupId: string) => {
+  await findOwnedGroup(groupId, workspaceId);
   await prisma.group.delete({ where: { id: groupId } });
 };
 
@@ -66,10 +66,10 @@ const validateContactIds = (ids: unknown): string[] => {
   return ids;
 };
 
-export const assignContacts = async (userId: string, groupId: string, contactIds: unknown) => {
-  await findOwnedGroup(groupId, userId);
+export const assignContacts = async (workspaceId: string, groupId: string, contactIds: unknown) => {
+  await findOwnedGroup(groupId, workspaceId);
   const ids = validateContactIds(contactIds);
-  const ownedContacts = await prisma.contact.findMany({ where: { id: { in: ids }, userId }, select: { id: true } });
+  const ownedContacts = await prisma.contact.findMany({ where: { id: { in: ids }, workspaceId }, select: { id: true } });
   await prisma.contactGroup.createMany({
     data: ownedContacts.map((c) => ({ contactId: c.id, groupId })),
     skipDuplicates: true,
@@ -77,8 +77,8 @@ export const assignContacts = async (userId: string, groupId: string, contactIds
   return { assignedCount: ownedContacts.length };
 };
 
-export const removeContacts = async (userId: string, groupId: string, contactIds: unknown) => {
-  await findOwnedGroup(groupId, userId);
+export const removeContacts = async (workspaceId: string, groupId: string, contactIds: unknown) => {
+  await findOwnedGroup(groupId, workspaceId);
   const ids = validateContactIds(contactIds);
   const result = await prisma.contactGroup.deleteMany({ where: { groupId, contactId: { in: ids } } });
   return { removedCount: result.count };

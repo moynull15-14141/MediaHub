@@ -21,8 +21,8 @@ const requireConnectedAccount = async (userId: string) => {
   return account;
 };
 
-const requireReadyCampaign = async (userId: string, campaignId: string) => {
-  const campaign = await findOwnedCampaign(campaignId, userId);
+const requireReadyCampaign = async (workspaceId: string, campaignId: string) => {
+  const campaign = await findOwnedCampaign(campaignId, workspaceId);
   if (campaign.status !== 'READY') {
     throw new CampaignQueueError('Campaign must be marked Ready before it can be sent', 400);
   }
@@ -53,7 +53,7 @@ export const generateQueueJobs = async (campaignId: string): Promise<number> => 
   // recipient count) but are created already SKIPPED so the worker never
   // dispatches them - this is the Blacklist's actual enforcement point.
   const blacklist = await prisma.blacklistedNumber.findMany({
-    where: { userId: campaign.userId },
+    where: { workspaceId: campaign.workspaceId },
     select: { phoneNumber: true, reason: true },
   });
   const blacklistMap = new Map(blacklist.map((b) => [b.phoneNumber, b.reason]));
@@ -79,8 +79,8 @@ export const generateQueueJobs = async (campaignId: string): Promise<number> => 
   return recipients.length;
 };
 
-export const startCampaignNow = async (userId: string, campaignId: string) => {
-  await requireReadyCampaign(userId, campaignId);
+export const startCampaignNow = async (workspaceId: string, userId: string, campaignId: string) => {
+  await requireReadyCampaign(workspaceId, campaignId);
   await requireConnectedAccount(userId);
   await generateQueueJobs(campaignId);
   const updated = await prisma.campaign.update({
@@ -92,8 +92,8 @@ export const startCampaignNow = async (userId: string, campaignId: string) => {
   return updated;
 };
 
-export const scheduleCampaign = async (userId: string, campaignId: string, body: any) => {
-  await requireReadyCampaign(userId, campaignId);
+export const scheduleCampaign = async (workspaceId: string, userId: string, campaignId: string, body: any) => {
+  await requireReadyCampaign(workspaceId, campaignId);
   await requireConnectedAccount(userId);
 
   const scheduledAt = new Date(body?.scheduledAt);
@@ -112,8 +112,8 @@ export const scheduleCampaign = async (userId: string, campaignId: string, body:
   return updated;
 };
 
-export const pauseCampaign = async (userId: string, campaignId: string) => {
-  const campaign = await findOwnedCampaign(campaignId, userId);
+export const pauseCampaign = async (workspaceId: string, userId: string, campaignId: string) => {
+  const campaign = await findOwnedCampaign(campaignId, workspaceId);
   if (campaign.sendStatus !== 'SENDING') {
     throw new CampaignQueueError('Only a currently sending campaign can be paused', 400);
   }
@@ -126,8 +126,8 @@ export const pauseCampaign = async (userId: string, campaignId: string) => {
   return updated;
 };
 
-export const resumeCampaign = async (userId: string, campaignId: string) => {
-  const campaign = await findOwnedCampaign(campaignId, userId);
+export const resumeCampaign = async (workspaceId: string, userId: string, campaignId: string) => {
+  const campaign = await findOwnedCampaign(campaignId, workspaceId);
   if (campaign.sendStatus !== 'PAUSED') {
     throw new CampaignQueueError('Only a paused campaign can be resumed', 400);
   }
@@ -140,8 +140,8 @@ export const resumeCampaign = async (userId: string, campaignId: string) => {
   return updated;
 };
 
-export const cancelQueue = async (userId: string, campaignId: string) => {
-  const campaign = await findOwnedCampaign(campaignId, userId);
+export const cancelQueue = async (workspaceId: string, userId: string, campaignId: string) => {
+  const campaign = await findOwnedCampaign(campaignId, workspaceId);
   if (!['SENDING', 'PAUSED', 'SCHEDULED', 'QUEUED'].includes(campaign.sendStatus)) {
     throw new CampaignQueueError('Campaign is not currently queued or sending', 400);
   }
@@ -155,8 +155,8 @@ export const cancelQueue = async (userId: string, campaignId: string) => {
   return updated;
 };
 
-export const getCampaignProgress = async (userId: string, campaignId: string) => {
-  const campaign = await findOwnedCampaign(campaignId, userId);
+export const getCampaignProgress = async (workspaceId: string, campaignId: string) => {
+  const campaign = await findOwnedCampaign(campaignId, workspaceId);
 
   const [statusGroups, deliveryGroups, total] = await Promise.all([
     prisma.campaignQueueJob.groupBy({ by: ['status'], where: { campaignId }, _count: true }),
@@ -212,8 +212,8 @@ export interface CampaignLogsOptions {
   pageSize?: number;
 }
 
-export const getCampaignLogs = async (userId: string, campaignId: string, options: CampaignLogsOptions) => {
-  await findOwnedCampaign(campaignId, userId);
+export const getCampaignLogs = async (workspaceId: string, campaignId: string, options: CampaignLogsOptions) => {
+  await findOwnedCampaign(campaignId, workspaceId);
   const page = Math.max(1, Number(options.page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(options.pageSize) || 25));
 

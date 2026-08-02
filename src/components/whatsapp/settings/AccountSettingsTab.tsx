@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { useAuth } from '@/src/components/auth/AuthContext';
 import { useToast } from '@/src/components/ui/toast-provider';
 import { whatsappFetch } from '@/src/lib/whatsapp-api';
+import { usePermissions } from '@/src/hooks/usePermissions';
 
 interface AccountInfo {
   businessName: string | null;
@@ -36,6 +37,8 @@ export function AccountSettingsTab() {
   const { token } = useAuth();
   const { push } = useToast();
   const navigate = useNavigate();
+  const { can } = usePermissions();
+  const canManage = can('settings:write');
   const [account, setAccount] = useState<AccountInfo | null | undefined>(undefined);
   const [refreshing, setRefreshing] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
@@ -118,16 +121,19 @@ export function AccountSettingsTab() {
           </div>
 
           <div className="flex flex-wrap gap-3 pt-2">
-            <Button variant="outline" onClick={handleRefresh} disabled={refreshing}>
+            <Button variant="outline" onClick={handleRefresh} disabled={refreshing || !canManage}>
               <RefreshCw className={refreshing ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} /> Refresh
             </Button>
-            <Button variant="outline" onClick={() => navigate('/whatsapp/accounts')}>
+            <Button variant="outline" onClick={() => navigate('/whatsapp/accounts')} disabled={!canManage}>
               <ExternalLink className="mr-2 h-4 w-4" /> Reconnect
             </Button>
-            <Button variant="outline" className="text-rose-300 hover:bg-rose-500/10" onClick={() => setDisconnectOpen(true)}>
+            <Button variant="outline" className="text-rose-300 hover:bg-rose-500/10" onClick={() => setDisconnectOpen(true)} disabled={!canManage}>
               <Unplug className="mr-2 h-4 w-4" /> Disconnect
             </Button>
           </div>
+          {!canManage && (
+            <p className="text-xs text-[var(--text-muted)]">Your role does not have permission to manage this account.</p>
+          )}
         </CardContent>
       </Card>
 

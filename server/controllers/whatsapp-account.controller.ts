@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { getUserId } from '../lib/require-auth';
+import { getWorkspaceId } from '../lib/require-workspace';
 import {
   connectAccount,
   getAccount,
@@ -31,7 +32,7 @@ const handleAccountError = (err: any, res: Response, fallback: string) => {
 
 export const connectHandler = async (req: Request, res: Response) => {
   try {
-    const account = await connectAccount(getUserId(req), req.body);
+    const account = await connectAccount(getWorkspaceId(req), getUserId(req), req.body);
     res.status(201).json(account);
   } catch (err) {
     handleAccountError(err, res, 'Failed to connect WhatsApp account');

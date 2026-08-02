@@ -40,14 +40,14 @@ export interface ListBlacklistOptions {
   pageSize?: number;
 }
 
-export const listBlacklist = async (userId: string, options: ListBlacklistOptions) => {
+export const listBlacklist = async (workspaceId: string, options: ListBlacklistOptions) => {
   if (options.reason && !REASONS.includes(options.reason as any)) {
     throw new BlacklistError(`Invalid reason filter: ${options.reason}`, 400);
   }
   const page = Math.max(1, Number(options.page) || 1);
   const pageSize = Math.min(200, Math.max(1, Number(options.pageSize) || 25));
 
-  const where: any = { userId };
+  const where: any = { workspaceId };
   if (options.search?.trim()) where.phoneNumber = { contains: options.search.trim() };
   if (options.reason) where.reason = options.reason;
 
@@ -70,7 +70,7 @@ export const listBlacklist = async (userId: string, options: ListBlacklistOption
   };
 };
 
-export const addToBlacklist = async (userId: string, body: any) => {
+export const addToBlacklist = async (workspaceId: string, userId: string, body: any) => {
   const phoneNumberRaw = typeof body?.phoneNumber === 'string' ? body.phoneNumber : '';
   if (!phoneNumberRaw.trim()) throw new BlacklistError('Phone number is required', 400);
   const reason = typeof body?.reason === 'string' && REASONS.includes(body.reason) ? body.reason : 'BLOCKED';
@@ -78,30 +78,30 @@ export const addToBlacklist = async (userId: string, body: any) => {
   const phoneNumber = normalizeBlacklistPhone(phoneNumberRaw);
 
   const entry = await prisma.blacklistedNumber.upsert({
-    where: { userId_phoneNumber: { userId, phoneNumber } },
-    create: { userId, phoneNumber, reason, note },
+    where: { workspaceId_phoneNumber: { workspaceId, phoneNumber } },
+    create: { workspaceId, userId, phoneNumber, reason, note },
     update: { reason, note },
   });
   return toPublicEntry(entry);
 };
 
-export const bulkDelete = async (userId: string, ids: unknown) => {
+export const bulkDelete = async (workspaceId: string, ids: unknown) => {
   if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === 'string')) {
     throw new BlacklistError('ids must be a non-empty array', 400);
   }
-  const result = await prisma.blacklistedNumber.deleteMany({ where: { userId, id: { in: ids } } });
+  const result = await prisma.blacklistedNumber.deleteMany({ where: { workspaceId, id: { in: ids } } });
   return { deletedCount: result.count };
 };
 
-export const deleteOne = async (userId: string, id: string) => {
+export const deleteOne = async (workspaceId: string, id: string) => {
   const entry = await prisma.blacklistedNumber.findUnique({ where: { id } });
-  if (!entry || entry.userId !== userId) throw new BlacklistError('Entry not found', 404);
+  if (!entry || entry.workspaceId !== workspaceId) throw new BlacklistError('Entry not found', 404);
   await prisma.blacklistedNumber.delete({ where: { id } });
 };
 
 const MAX_IMPORT_ROWS = 20000;
 
-export const importCsv = async (userId: string, buffer: Buffer) => {
+export const importCsv = async (workspaceId: string, userId: string, buffer: Buffer) => {
   const text = buffer.toString('utf8');
   const parsed = Papa.parse<Record<string, any>>(text, { header: true, skipEmptyLines: true });
   const rows = parsed.data.slice(0, MAX_IMPORT_ROWS);
@@ -120,8 +120,8 @@ export const importCsv = async (userId: string, buffer: Buffer) => {
     const note = sanitizeText(row.note || row.Note, NOTE_MAX);
 
     await prisma.blacklistedNumber.upsert({
-      where: { userId_phoneNumber: { userId, phoneNumber } },
-      create: { userId, phoneNumber, reason: reason as any, note },
+      where: { workspaceId_phoneNumber: { workspaceId, phoneNumber } },
+      create: { workspaceId, userId, phoneNumber, reason: reason as any, note },
       update: { reason: reason as any, note },
     });
     imported += 1;
@@ -133,8 +133,8 @@ export const importCsv = async (userId: string, buffer: Buffer) => {
 
 const csvEscape = (value: string): string => (/[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value);
 
-export const exportCsv = async (userId: string): Promise<string> => {
-  const entries = await prisma.blacklistedNumber.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } });
+export const exportCsv = async (workspaceId: string): Promise<string> => {
+  const entries = await prisma.blacklistedNumber.findMany({ where: { workspaceId }, orderBy: { createdAt: 'desc' } });
   const header = 'phoneNumber,reason,note,createdAt';
   const rows = entries.map((e) =>
     [e.phoneNumber, e.reason, e.note || '', e.createdAt.toISOString()].map((v) => csvEscape(String(v))).join(','),

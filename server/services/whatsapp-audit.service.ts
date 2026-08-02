@@ -1,14 +1,19 @@
 import { prisma } from '../lib/prisma';
+import { getCurrentWorkspaceForUser } from './workspace.service';
 
 const DETAIL_MAX = 500;
 
 // Fire-and-forget-safe: audit logging should never fail the action it's
 // describing, so failures here are swallowed (and logged to the console)
-// rather than thrown.
+// rather than thrown. Resolves workspaceId from userId internally (rather
+// than threading it through every one of this function's ~13 call sites)
+// since every user currently belongs to exactly one workspace.
 export const logAudit = async (userId: string, action: string, detail?: string): Promise<void> => {
   try {
+    const member = await getCurrentWorkspaceForUser(userId);
+    if (!member) return;
     await prisma.accountAuditLog.create({
-      data: { userId, action, detail: detail ? detail.slice(0, DETAIL_MAX) : undefined },
+      data: { userId, workspaceId: member.workspaceId, action, detail: detail ? detail.slice(0, DETAIL_MAX) : undefined },
     });
   } catch (err) {
     console.error('Failed to write audit log:', err);

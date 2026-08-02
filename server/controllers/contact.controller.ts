@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { getUserId } from '../lib/require-auth';
+import { getWorkspaceId } from '../lib/require-workspace';
 import {
   listContacts,
   createContact,
@@ -21,7 +22,7 @@ const handleContactError = (err: any, res: Response, fallback: string) => {
 export const listHandler = async (req: Request, res: Response) => {
   try {
     const { page, pageSize, search, status, groupId, labelId } = req.query;
-    const result = await listContacts(getUserId(req), {
+    const result = await listContacts(getWorkspaceId(req), {
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
       search: typeof search === 'string' ? search : undefined,
@@ -37,7 +38,7 @@ export const listHandler = async (req: Request, res: Response) => {
 
 export const createHandler = async (req: Request, res: Response) => {
   try {
-    const contact = await createContact(getUserId(req), req.body);
+    const contact = await createContact(getWorkspaceId(req), getUserId(req), req.body);
     res.status(201).json(contact);
   } catch (err) {
     handleContactError(err, res, 'Failed to create contact');
@@ -46,7 +47,7 @@ export const createHandler = async (req: Request, res: Response) => {
 
 export const updateHandler = async (req: Request, res: Response) => {
   try {
-    const contact = await updateContact(getUserId(req), req.params.id, req.body);
+    const contact = await updateContact(getWorkspaceId(req), req.params.id, req.body);
     res.json(contact);
   } catch (err) {
     handleContactError(err, res, 'Failed to update contact');
@@ -55,7 +56,7 @@ export const updateHandler = async (req: Request, res: Response) => {
 
 export const deleteHandler = async (req: Request, res: Response) => {
   try {
-    await deleteContact(getUserId(req), req.params.id);
+    await deleteContact(getWorkspaceId(req), req.params.id);
     res.status(204).send();
   } catch (err) {
     handleContactError(err, res, 'Failed to delete contact');
@@ -64,7 +65,7 @@ export const deleteHandler = async (req: Request, res: Response) => {
 
 export const bulkDeleteHandler = async (req: Request, res: Response) => {
   try {
-    const result = await bulkDeleteContacts(getUserId(req), req.body?.ids);
+    const result = await bulkDeleteContacts(getWorkspaceId(req), req.body?.ids);
     res.json(result);
   } catch (err) {
     handleContactError(err, res, 'Failed to bulk delete contacts');

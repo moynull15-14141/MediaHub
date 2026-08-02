@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { getUserId } from '../lib/require-auth';
+import { getWorkspaceId } from '../lib/require-workspace';
 import {
   listTemplates,
   createTemplate,
@@ -24,7 +25,7 @@ const handleTemplateError = (err: any, res: Response, fallback: string) => {
 export const listHandler = async (req: Request, res: Response) => {
   try {
     const { search, category, favorite } = req.query;
-    const templates = await listTemplates(getUserId(req), {
+    const templates = await listTemplates(getWorkspaceId(req), {
       search: typeof search === 'string' ? search : undefined,
       category: typeof category === 'string' ? category : undefined,
       favoriteOnly: favorite === 'true',
@@ -37,7 +38,7 @@ export const listHandler = async (req: Request, res: Response) => {
 
 export const createHandler = async (req: Request, res: Response) => {
   try {
-    const template = await createTemplate(getUserId(req), req.body);
+    const template = await createTemplate(getWorkspaceId(req), getUserId(req), req.body);
     res.status(201).json(template);
   } catch (err) {
     handleTemplateError(err, res, 'Failed to create template');
@@ -46,7 +47,7 @@ export const createHandler = async (req: Request, res: Response) => {
 
 export const updateHandler = async (req: Request, res: Response) => {
   try {
-    const template = await updateTemplate(getUserId(req), req.params.id, req.body);
+    const template = await updateTemplate(getWorkspaceId(req), req.params.id, req.body);
     res.json(template);
   } catch (err) {
     handleTemplateError(err, res, 'Failed to update template');
@@ -55,7 +56,7 @@ export const updateHandler = async (req: Request, res: Response) => {
 
 export const deleteHandler = async (req: Request, res: Response) => {
   try {
-    await deleteTemplate(getUserId(req), req.params.id);
+    await deleteTemplate(getWorkspaceId(req), req.params.id);
     res.status(204).send();
   } catch (err) {
     handleTemplateError(err, res, 'Failed to delete template');
@@ -64,7 +65,7 @@ export const deleteHandler = async (req: Request, res: Response) => {
 
 export const duplicateHandler = async (req: Request, res: Response) => {
   try {
-    const template = await duplicateTemplate(getUserId(req), req.params.id);
+    const template = await duplicateTemplate(getWorkspaceId(req), getUserId(req), req.params.id);
     res.status(201).json(template);
   } catch (err) {
     handleTemplateError(err, res, 'Failed to duplicate template');
@@ -73,7 +74,7 @@ export const duplicateHandler = async (req: Request, res: Response) => {
 
 export const favoriteHandler = async (req: Request, res: Response) => {
   try {
-    const template = await setFavorite(getUserId(req), req.params.id, req.body?.isFavorite);
+    const template = await setFavorite(getWorkspaceId(req), req.params.id, req.body?.isFavorite);
     res.json(template);
   } catch (err) {
     handleTemplateError(err, res, 'Failed to update favorite');
@@ -82,7 +83,7 @@ export const favoriteHandler = async (req: Request, res: Response) => {
 
 export const variablesHandler = async (req: Request, res: Response) => {
   try {
-    const variables = await getVariablesForUser(getUserId(req));
+    const variables = await getVariablesForUser(getWorkspaceId(req));
     res.json(variables);
   } catch (err) {
     handleTemplateError(err, res, 'Failed to load variables');
@@ -91,7 +92,7 @@ export const variablesHandler = async (req: Request, res: Response) => {
 
 export const previewHandler = async (req: Request, res: Response) => {
   try {
-    const result = await previewMessage(getUserId(req), req.body);
+    const result = await previewMessage(getWorkspaceId(req), req.body);
     res.json(result);
   } catch (err) {
     handleTemplateError(err, res, 'Failed to render preview');

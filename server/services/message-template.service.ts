@@ -36,7 +36,7 @@ const validateCategory = (value: unknown): (typeof CATEGORIES)[number] => {
 };
 
 // Draft-time save only checks message syntax (no unknown-variable rejection)
-// - variable names are open-ended per-user data now, not a fixed allowlist.
+// - variable names are open-ended per-workspace data now, not a fixed allowlist.
 const validateMessageSyntax = (value: unknown): string => {
   if (typeof value !== 'string' || !value.trim()) {
     throw new MessageTemplateError('Message is required', 400);
@@ -52,15 +52,15 @@ const validateMessageSyntax = (value: unknown): string => {
   return trimmed;
 };
 
-const findOwnedTemplate = async (templateId: string, userId: string) => {
+const findOwnedTemplate = async (templateId: string, workspaceId: string) => {
   const template = await prisma.messageTemplate.findUnique({ where: { id: templateId } });
-  if (!template || template.userId !== userId) throw new MessageTemplateError('Template not found', 404);
+  if (!template || template.workspaceId !== workspaceId) throw new MessageTemplateError('Template not found', 404);
   return template;
 };
 
-const checkDuplicateName = async (userId: string, name: string, excludeId?: string): Promise<boolean> => {
+const checkDuplicateName = async (workspaceId: string, name: string, excludeId?: string): Promise<boolean> => {
   const existing = await prisma.messageTemplate.findFirst({
-    where: { userId, name: { equals: name, mode: 'insensitive' }, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    where: { workspaceId, name: { equals: name, mode: 'insensitive' }, ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: { id: true },
   });
   return !!existing;
@@ -72,11 +72,11 @@ export interface ListTemplatesOptions {
   favoriteOnly?: boolean;
 }
 
-export const listTemplates = async (userId: string, options: ListTemplatesOptions) => {
+export const listTemplates = async (workspaceId: string, options: ListTemplatesOptions) => {
   if (options.category && !CATEGORIES.includes(options.category as any)) {
     throw new MessageTemplateError(`Invalid category filter: ${options.category}`, 400);
   }
-  const where: any = { userId };
+  const where: any = { workspaceId };
   if (options.search?.trim()) where.name = { contains: options.search.trim(), mode: 'insensitive' };
   if (options.category) where.category = options.category;
   if (options.favoriteOnly) where.isFavorite = true;
@@ -88,26 +88,26 @@ export const listTemplates = async (userId: string, options: ListTemplatesOption
   return templates.map(toPublicTemplate);
 };
 
-export const createTemplate = async (userId: string, body: any) => {
+export const createTemplate = async (workspaceId: string, userId: string, body: any) => {
   const name = sanitizeText(body?.name, NAME_MAX);
   if (!name) throw new MessageTemplateError('Template name is required', 400);
   const category = validateCategory(body?.category);
   const messageText = validateMessageSyntax(body?.messageText);
-  const nameAlreadyExists = await checkDuplicateName(userId, name);
+  const nameAlreadyExists = await checkDuplicateName(workspaceId, name);
 
   const template = await prisma.messageTemplate.create({
-    data: { userId, name, category, messageText },
+    data: { workspaceId, userId, name, category, messageText },
   });
   return { ...toPublicTemplate(template), nameAlreadyExists };
 };
 
-export const updateTemplate = async (userId: string, templateId: string, body: any) => {
-  await findOwnedTemplate(templateId, userId);
+export const updateTemplate = async (workspaceId: string, templateId: string, body: any) => {
+  await findOwnedTemplate(templateId, workspaceId);
   const name = sanitizeText(body?.name, NAME_MAX);
   if (!name) throw new MessageTemplateError('Template name is required', 400);
   const category = validateCategory(body?.category);
   const messageText = validateMessageSyntax(body?.messageText);
-  const nameAlreadyExists = await checkDuplicateName(userId, name, templateId);
+  const nameAlreadyExists = await checkDuplicateName(workspaceId, name, templateId);
 
   const template = await prisma.messageTemplate.update({
     where: { id: templateId },
@@ -116,15 +116,16 @@ export const updateTemplate = async (userId: string, templateId: string, body: a
   return { ...toPublicTemplate(template), nameAlreadyExists };
 };
 
-export const deleteTemplate = async (userId: string, templateId: string) => {
-  await findOwnedTemplate(templateId, userId);
+export const deleteTemplate = async (workspaceId: string, templateId: string) => {
+  await findOwnedTemplate(templateId, workspaceId);
   await prisma.messageTemplate.delete({ where: { id: templateId } });
 };
 
-export const duplicateTemplate = async (userId: string, templateId: string) => {
-  const original = await findOwnedTemplate(templateId, userId);
+export const duplicateTemplate = async (workspaceId: string, userId: string, templateId: string) => {
+  const original = await findOwnedTemplate(templateId, workspaceId);
   const template = await prisma.messageTemplate.create({
     data: {
+      workspaceId,
       userId,
       name: `${original.name} (Copy)`,
       category: original.category,
@@ -135,8 +136,8 @@ export const duplicateTemplate = async (userId: string, templateId: string) => {
   return toPublicTemplate(template);
 };
 
-export const setFavorite = async (userId: string, templateId: string, isFavorite: unknown) => {
-  await findOwnedTemplate(templateId, userId);
+export const setFavorite = async (workspaceId: string, templateId: string, isFavorite: unknown) => {
+  await findOwnedTemplate(templateId, workspaceId);
   const template = await prisma.messageTemplate.update({
     where: { id: templateId },
     data: { isFavorite: Boolean(isFavorite) },
@@ -144,21 +145,21 @@ export const setFavorite = async (userId: string, templateId: string, isFavorite
   return toPublicTemplate(template);
 };
 
-export const getVariablesForUser = async (userId: string) => {
-  return getAvailableVariableKeysCached(userId);
+export const getVariablesForUser = async (workspaceId: string) => {
+  return getAvailableVariableKeysCached(workspaceId);
 };
 
-export const previewMessage = async (userId: string, body: any) => {
+export const previewMessage = async (workspaceId: string, body: any) => {
   const messageText = typeof body?.messageText === 'string' ? body.messageText : '';
   const contactId = typeof body?.contactId === 'string' ? body.contactId : undefined;
 
-  const availableKeys = await getAvailableVariableKeysCached(userId);
+  const availableKeys = await getAvailableVariableKeysCached(workspaceId);
   const validation = validateTemplate(messageText, availableKeys);
 
   let renderedText = messageText;
   if (contactId) {
     const contact = await prisma.contact.findUnique({ where: { id: contactId } });
-    if (!contact || contact.userId !== userId) {
+    if (!contact || contact.workspaceId !== workspaceId) {
       throw new MessageTemplateError('Contact not found', 404);
     }
     renderedText = renderTemplate(messageText, contact);

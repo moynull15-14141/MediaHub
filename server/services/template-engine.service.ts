@@ -134,19 +134,20 @@ export interface AvailableVariableKeys {
 const AVAILABLE_KEYS_CACHE_TTL_MS = 60_000;
 const availableKeysCache = new Map<string, { standard: readonly string[]; custom: string[]; expiresAt: number }>();
 
-// Aggregates every distinct customFields key across a user's contacts (plus
-// the fixed standard fields) for the "Available Variables" panel and for
-// unknown-variable validation. Cached in-process per user for a short TTL so
-// bursts of keystroke-triggered preview calls don't each re-scan every
-// contact - correctness only needs this to be eventually-consistent, since
-// actual rendering always reads the live contact record, not this cache.
-export const getAvailableVariableKeysCached = async (userId: string): Promise<AvailableVariableKeys> => {
-  const cached = availableKeysCache.get(userId);
+// Aggregates every distinct customFields key across a workspace's contacts
+// (plus the fixed standard fields) for the "Available Variables" panel and
+// for unknown-variable validation. Cached in-process per workspace for a
+// short TTL so bursts of keystroke-triggered preview calls don't each
+// re-scan every contact - correctness only needs this to be
+// eventually-consistent, since actual rendering always reads the live
+// contact record, not this cache.
+export const getAvailableVariableKeysCached = async (workspaceId: string): Promise<AvailableVariableKeys> => {
+  const cached = availableKeysCache.get(workspaceId);
   if (cached && cached.expiresAt > Date.now()) {
     return { standard: cached.standard, custom: cached.custom };
   }
 
-  const contacts = await prisma.contact.findMany({ where: { userId }, select: { customFields: true } });
+  const contacts = await prisma.contact.findMany({ where: { workspaceId }, select: { customFields: true } });
   const customKeys = new Map<string, string>();
   for (const contact of contacts) {
     const fields = contact.customFields;
@@ -159,7 +160,7 @@ export const getAvailableVariableKeysCached = async (userId: string): Promise<Av
   }
 
   const result: AvailableVariableKeys = { standard: STANDARD_VARIABLE_KEYS, custom: Array.from(customKeys.values()) };
-  availableKeysCache.set(userId, { ...result, expiresAt: Date.now() + AVAILABLE_KEYS_CACHE_TTL_MS });
+  availableKeysCache.set(workspaceId, { ...result, expiresAt: Date.now() + AVAILABLE_KEYS_CACHE_TTL_MS });
   return result;
 };
 

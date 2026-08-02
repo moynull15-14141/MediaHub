@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import multer from 'multer';
 import { getUserId } from '../lib/require-auth';
+import { getWorkspaceId } from '../lib/require-workspace';
 import {
   listBlacklist,
   addToBlacklist,
@@ -23,7 +24,7 @@ const handleBlacklistError = (err: any, res: Response, fallback: string) => {
 export const listHandler = async (req: Request, res: Response) => {
   try {
     const { search, reason, page, pageSize } = req.query;
-    const result = await listBlacklist(getUserId(req), {
+    const result = await listBlacklist(getWorkspaceId(req), {
       search: typeof search === 'string' ? search : undefined,
       reason: typeof reason === 'string' ? reason : undefined,
       page: page ? Number(page) : undefined,
@@ -37,7 +38,7 @@ export const listHandler = async (req: Request, res: Response) => {
 
 export const createHandler = async (req: Request, res: Response) => {
   try {
-    const entry = await addToBlacklist(getUserId(req), req.body);
+    const entry = await addToBlacklist(getWorkspaceId(req), getUserId(req), req.body);
     res.status(201).json(entry);
   } catch (err) {
     handleBlacklistError(err, res, 'Failed to add to blacklist');
@@ -46,7 +47,7 @@ export const createHandler = async (req: Request, res: Response) => {
 
 export const deleteHandler = async (req: Request, res: Response) => {
   try {
-    await deleteOne(getUserId(req), req.params.id);
+    await deleteOne(getWorkspaceId(req), req.params.id);
     res.status(204).send();
   } catch (err) {
     handleBlacklistError(err, res, 'Failed to delete entry');
@@ -55,7 +56,7 @@ export const deleteHandler = async (req: Request, res: Response) => {
 
 export const bulkDeleteHandler = async (req: Request, res: Response) => {
   try {
-    const result = await bulkDelete(getUserId(req), req.body?.ids);
+    const result = await bulkDelete(getWorkspaceId(req), req.body?.ids);
     res.json(result);
   } catch (err) {
     handleBlacklistError(err, res, 'Failed to bulk delete');
@@ -95,7 +96,7 @@ export const importHandler = async (req: Request, res: Response) => {
     return;
   }
   try {
-    const result = await importCsv(getUserId(req), req.file.buffer);
+    const result = await importCsv(getWorkspaceId(req), getUserId(req), req.file.buffer);
     res.json(result);
   } catch (err) {
     handleBlacklistError(err, res, 'Failed to import blacklist');
@@ -104,7 +105,7 @@ export const importHandler = async (req: Request, res: Response) => {
 
 export const exportHandler = async (req: Request, res: Response) => {
   try {
-    const csv = await exportCsv(getUserId(req));
+    const csv = await exportCsv(getWorkspaceId(req));
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', 'attachment; filename="blacklist.csv"');
     res.send(csv);

@@ -19,16 +19,16 @@ export const toPublicLabel = (label: any) => ({
   updatedAt: label.updatedAt,
 });
 
-const findOwnedLabel = async (labelId: string, userId: string) => {
+const findOwnedLabel = async (labelId: string, workspaceId: string) => {
   const label = await prisma.label.findUnique({ where: { id: labelId } });
-  if (!label || label.userId !== userId) throw new LabelError('Label not found', 404);
+  if (!label || label.workspaceId !== workspaceId) throw new LabelError('Label not found', 404);
   return label;
 };
 
-export const listLabels = async (userId: string, search?: string) => {
+export const listLabels = async (workspaceId: string, search?: string) => {
   const labels = await prisma.label.findMany({
     where: {
-      userId,
+      workspaceId,
       ...(search?.trim() ? { name: { contains: search.trim(), mode: 'insensitive' } } : {}),
     },
     include: { _count: { select: { contacts: true } } },
@@ -45,23 +45,23 @@ const validateColor = (color: unknown): string | undefined => {
   return color;
 };
 
-export const createLabel = async (userId: string, body: any) => {
+export const createLabel = async (workspaceId: string, userId: string, body: any) => {
   const name = sanitizeText(body?.name, NAME_MAX);
   if (!name) throw new LabelError('Label name is required', 400);
   const color = validateColor(body?.color);
-  const existing = await prisma.label.findUnique({ where: { userId_name: { userId, name } } });
+  const existing = await prisma.label.findUnique({ where: { workspaceId_name: { workspaceId, name } } });
   if (existing) throw new LabelError('A label with this name already exists', 409);
-  const label = await prisma.label.create({ data: { userId, name, ...(color ? { color } : {}) } });
+  const label = await prisma.label.create({ data: { workspaceId, userId, name, ...(color ? { color } : {}) } });
   return toPublicLabel(label);
 };
 
-export const renameLabel = async (userId: string, labelId: string, body: any) => {
-  await findOwnedLabel(labelId, userId);
+export const renameLabel = async (workspaceId: string, labelId: string, body: any) => {
+  await findOwnedLabel(labelId, workspaceId);
   const data: { name?: string; color?: string } = {};
   if (body?.name !== undefined) {
     const name = sanitizeText(body.name, NAME_MAX);
     if (!name) throw new LabelError('Label name is required', 400);
-    const existing = await prisma.label.findUnique({ where: { userId_name: { userId, name } } });
+    const existing = await prisma.label.findUnique({ where: { workspaceId_name: { workspaceId, name } } });
     if (existing && existing.id !== labelId) throw new LabelError('A label with this name already exists', 409);
     data.name = name;
   }
@@ -71,18 +71,18 @@ export const renameLabel = async (userId: string, labelId: string, body: any) =>
   return toPublicLabel(label);
 };
 
-export const deleteLabel = async (userId: string, labelId: string) => {
-  await findOwnedLabel(labelId, userId);
+export const deleteLabel = async (workspaceId: string, labelId: string) => {
+  await findOwnedLabel(labelId, workspaceId);
   await prisma.label.delete({ where: { id: labelId } });
 };
 
-export const assignLabelsToContact = async (userId: string, contactId: string, labelIds: unknown) => {
+export const assignLabelsToContact = async (workspaceId: string, contactId: string, labelIds: unknown) => {
   const contact = await prisma.contact.findUnique({ where: { id: contactId } });
-  if (!contact || contact.userId !== userId) throw new LabelError('Contact not found', 404);
+  if (!contact || contact.workspaceId !== workspaceId) throw new LabelError('Contact not found', 404);
   if (!Array.isArray(labelIds) || !labelIds.every((id) => typeof id === 'string')) {
     throw new LabelError('labelIds must be an array', 400);
   }
-  const ownedLabels = await prisma.label.findMany({ where: { id: { in: labelIds }, userId }, select: { id: true } });
+  const ownedLabels = await prisma.label.findMany({ where: { id: { in: labelIds }, workspaceId }, select: { id: true } });
   await prisma.$transaction([
     prisma.contactLabel.deleteMany({ where: { contactId } }),
     prisma.contactLabel.createMany({

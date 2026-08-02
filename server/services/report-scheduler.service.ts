@@ -8,6 +8,14 @@ const POLL_INTERVAL_MS = 60_000;
 
 let timer: NodeJS.Timeout | null = null;
 let tickRunning = false;
+let lastTickAt: Date | null = null;
+
+// Consumed by diagnostics.service.ts (Phase A.4, Part 2) - mirrors
+// getWorkerHeartbeat() in campaign-queue-worker.service.ts.
+export const getSchedulerHeartbeat = (): { running: boolean; lastTickAt: Date | null } => ({
+  running: timer !== null,
+  lastTickAt,
+});
 
 const runDueReports = async (): Promise<void> => {
   const due = await prisma.scheduledReport.findMany({
@@ -16,7 +24,7 @@ const runDueReports = async (): Promise<void> => {
 
   for (const report of due) {
     try {
-      await generateReport(report.userId, {
+      await generateReport(report.workspaceId, report.userId, {
         name: report.name,
         dataset: report.dataset as any,
         format: report.format as any,
@@ -45,6 +53,7 @@ const tick = async (): Promise<void> => {
   tickRunning = true;
   try {
     await runDueReports();
+    lastTickAt = new Date();
   } catch (err) {
     console.error('Report scheduler tick error:', err);
   } finally {

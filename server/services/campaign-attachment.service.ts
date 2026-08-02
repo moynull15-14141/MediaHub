@@ -29,9 +29,9 @@ export const inferAttachmentType = (ext: string): keyof typeof TYPE_RULES | null
 
 export const getMaxBytesForType = (type: string): number => TYPE_RULES[type]?.maxBytes ?? 0;
 
-const findOwnedCampaignWithAttachment = async (campaignId: string, userId: string) => {
+const findOwnedCampaignWithAttachment = async (campaignId: string, workspaceId: string) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, include: { attachment: true } });
-  if (!campaign || campaign.userId !== userId) throw new CampaignAttachmentError('Campaign not found', 404);
+  if (!campaign || campaign.workspaceId !== workspaceId) throw new CampaignAttachmentError('Campaign not found', 404);
   return campaign;
 };
 
@@ -59,8 +59,8 @@ export const toPublicAttachment = async (attachment: {
   previewUrl: await getPresignedViewUrl(attachment.storageKey),
 });
 
-export const setAttachment = async (userId: string, campaignId: string, info: UploadedAttachmentInfo) => {
-  const campaign = await findOwnedCampaignWithAttachment(campaignId, userId);
+export const setAttachment = async (workspaceId: string, campaignId: string, info: UploadedAttachmentInfo) => {
+  const campaign = await findOwnedCampaignWithAttachment(campaignId, workspaceId);
 
   const type = inferAttachmentType(info.ext);
   if (!type) throw new CampaignAttachmentError(`Unsupported attachment type: ${info.ext}`, 400);
@@ -101,8 +101,8 @@ export const setAttachment = async (userId: string, campaignId: string, info: Up
   return toPublicAttachment(attachment);
 };
 
-export const removeAttachment = async (userId: string, campaignId: string) => {
-  const campaign = await findOwnedCampaignWithAttachment(campaignId, userId);
+export const removeAttachment = async (workspaceId: string, campaignId: string) => {
+  const campaign = await findOwnedCampaignWithAttachment(campaignId, workspaceId);
   if (!campaign.attachment) throw new CampaignAttachmentError('No attachment to remove', 404);
   await deleteFromR2([campaign.attachment.storageKey]);
   await prisma.campaignAttachment.delete({ where: { campaignId } });
@@ -111,11 +111,11 @@ export const removeAttachment = async (userId: string, campaignId: string) => {
 // Campaign Defaults (Phase 5): copies the account's default attachment into
 // a brand-new campaign's own attachment slot, reusing the exact same R2 copy
 // helper Duplicate Campaign already relies on - never re-implemented.
-export const applyDefaultAttachment = async (userId: string, campaignId: string) => {
-  const campaign = await findOwnedCampaignWithAttachment(campaignId, userId);
+export const applyDefaultAttachment = async (workspaceId: string, campaignId: string) => {
+  const campaign = await findOwnedCampaignWithAttachment(campaignId, workspaceId);
   if (campaign.attachment) return null; // don't clobber an attachment the user already set
 
-  const account = await prisma.whatsappAccount.findUnique({ where: { userId } });
+  const account = await prisma.whatsappAccount.findFirst({ where: { workspaceId } });
   if (!account?.defaultAttachmentKey || !account.defaultAttachmentType || !account.defaultAttachmentFilename || !account.defaultAttachmentMimeType) {
     return null;
   }

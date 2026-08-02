@@ -1,7 +1,6 @@
-import os from 'os';
-import fs from 'fs';
 import { prisma } from '../lib/prisma';
 import { checkR2Health } from '../lib/r2';
+import { checkDatabase, checkMemory, checkCpu, checkDisk } from '../lib/health-checks';
 import { getWorkerHeartbeat } from './campaign-queue-worker.service';
 import { getApiHealth } from './api-health.service';
 
@@ -15,18 +14,18 @@ export interface HealthCard {
 
 const WORKER_STALE_MS = 10_000;
 
+const LEVEL_TO_STATUS: Record<string, HealthStatus> = { healthy: 'green', warning: 'yellow', critical: 'red' };
+
 export const getSystemHealth = async (userId: string): Promise<HealthCard[]> => {
   const cards: HealthCard[] = [];
 
   // Database
-  try {
-    const start = Date.now();
-    await prisma.$queryRaw`SELECT 1`;
-    const latency = Date.now() - start;
-    cards.push({ name: 'Database', status: latency < 200 ? 'green' : 'yellow', detail: `${latency}ms` });
-  } catch (err: any) {
-    cards.push({ name: 'Database', status: 'red', detail: err.message || 'Unreachable' });
-  }
+  const db = await checkDatabase();
+  cards.push({
+    name: 'Database',
+    status: LEVEL_TO_STATUS[db.level],
+    detail: db.error || `${db.latencyMs}ms`,
+  });
 
   // Queue Worker
   const heartbeat = getWorkerHeartbeat();
@@ -74,41 +73,20 @@ export const getSystemHealth = async (userId: string): Promise<HealthCard[]> => 
   cards.push({ name: 'Server', status: 'green', detail: `Up ${Math.round(process.uptime())}s` });
 
   // Memory
-  const totalMem = os.totalmem();
-  const freeMem = os.freemem();
-  const usedPercent = Math.round(((totalMem - freeMem) / totalMem) * 100);
-  cards.push({
-    name: 'Memory',
-    status: usedPercent < 80 ? 'green' : usedPercent < 92 ? 'yellow' : 'red',
-    detail: `${usedPercent}% used`,
-  });
+  const memory = checkMemory();
+  cards.push({ name: 'Memory', status: LEVEL_TO_STATUS[memory.level], detail: `${memory.usedPercent}% used` });
 
   // CPU (1-minute load average relative to core count)
-  const cpuCount = os.cpus().length || 1;
-  const load1 = os.loadavg()[0];
-  const loadPercent = Math.round((load1 / cpuCount) * 100);
-  cards.push({
-    name: 'CPU',
-    status: loadPercent < 70 ? 'green' : loadPercent < 90 ? 'yellow' : 'red',
-    detail: `${loadPercent}% load`,
-  });
+  const cpu = checkCpu();
+  cards.push({ name: 'CPU', status: LEVEL_TO_STATUS[cpu.level], detail: `${cpu.loadPercent}% load` });
 
   // Disk (best-effort; not every platform/Node version supports statfsSync)
-  try {
-    const stats = (fs as any).statfsSync?.('/');
-    if (stats) {
-      const diskUsedPercent = Math.round(((stats.blocks - stats.bfree) / stats.blocks) * 100);
-      cards.push({
-        name: 'Disk',
-        status: diskUsedPercent < 85 ? 'green' : diskUsedPercent < 95 ? 'yellow' : 'red',
-        detail: `${diskUsedPercent}% used`,
-      });
-    } else {
-      cards.push({ name: 'Disk', status: 'yellow', detail: 'Not available on this platform' });
-    }
-  } catch {
-    cards.push({ name: 'Disk', status: 'yellow', detail: 'Not available on this platform' });
-  }
+  const disk = checkDisk();
+  cards.push({
+    name: 'Disk',
+    status: LEVEL_TO_STATUS[disk.level],
+    detail: disk.available ? `${disk.usedPercent}% used` : 'Not available on this platform',
+  });
 
   return cards;
 };

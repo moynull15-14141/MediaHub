@@ -136,9 +136,30 @@ enum WhatsappHealthStatus {
   UNKNOWN
 }
 
+// Phase B.1 - how this account's credentials were obtained. MANUAL covers
+// every account connected before this phase (and still available as a
+// fallback path); META_EMBEDDED_SIGNUP is the new Meta-official flow.
+enum WhatsappConnectionSource {
+  MANUAL
+  META_EMBEDDED_SIGNUP
+}
+
+// Phase B.1 Part 9 - the 4 states the brief explicitly asks the UI to show,
+// distinct from the pre-existing WhatsappAccountStatus (CONNECTED/
+// DISCONNECTED/ERROR) which the sending engine already reads and which this
+// phase does not repurpose. connectionHealth is additive, computed by
+// validate/sync, and safe to ignore for any code that only knows the old enum.
+enum WhatsappConnectionHealth {
+  CONNECTED
+  DISCONNECTED
+  EXPIRED
+  PERMISSION_ERROR
+}
+
 model WhatsappAccount {
   id                   String                @id @default(uuid())
   userId               String                @unique
+  workspaceId          String
   phoneNumberId        String
   wabaId               String?
   displayPhoneNumber   String?
@@ -187,8 +208,46 @@ model WhatsappAccount {
   notifyWebhookOffline Boolean               @default(true)
   notifyQualityDrop    Boolean               @default(true)
   notifyApiFailure     Boolean               @default(true)
+
+  // Phase B.1 - Meta Embedded Signup. All nullable/defaulted so existing
+  // manually-connected rows (connectionSource defaults to MANUAL) need no
+  // backfill and every pre-existing read of this model is unaffected.
+  connectionSource     WhatsappConnectionSource @default(MANUAL)
+  connectionHealth     WhatsappConnectionHealth @default(DISCONNECTED)
+  verifiedName         String?
+  metaBusinessId       String?
+  metaBusinessName     String?
+  businessVerificationStatus String?
+  accountReviewStatus  String?
+  grantedScopes        String?
+  tokenExpiresAt       DateTime?
+  lastValidationAt     DateTime?
+  lastValidationStatus String?
+
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
+
+  @@index([workspaceId])
+}
+
+// Phase B.1 Part 3 - short-lived, single-use CSRF/replay guard for the Meta
+// Embedded Signup callback. Minted server-side when a logged-in user opens
+// the Facebook login popup (tied to their workspace+user), consumed exactly
+// once when the callback arrives, and rejected once expired - the standard
+// double-submit-style defense adapted for a JS-SDK popup flow that never
+// goes through a browser redirect (so there is no query-string `state` round
+// trip to protect the way a classic OAuth redirect flow would have).
+model MetaOAuthState {
+  id          String   @id @default(uuid())
+  state       String   @unique
+  workspaceId String
+  userId      String
+  used        Boolean  @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([workspaceId])
+  @@index([expiresAt])
 }
 
 enum BlacklistReason {
@@ -201,25 +260,69 @@ enum BlacklistReason {
 model BlacklistedNumber {
   id          String          @id @default(uuid())
   userId      String
+  workspaceId String
   phoneNumber String
   reason      BlacklistReason
   note        String?
   createdAt   DateTime        @default(now())
 
-  @@unique([userId, phoneNumber])
+  @@unique([workspaceId, phoneNumber])
   @@index([userId])
-  @@index([userId, reason])
+  @@index([workspaceId])
+  @@index([workspaceId, reason])
 }
 
 model AccountAuditLog {
-  id        String   @id @default(uuid())
-  userId    String
-  action    String
-  detail    String?
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  userId      String
+  workspaceId String
+  action      String
+  detail      String?
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
 
   @@index([userId])
+  @@index([workspaceId])
+  @@index([workspaceId, createdAt])
+}
+
+// Session/device-level auth history (Phase A.4, Part 4) - deliberately
+// separate from AccountAuditLog above: that table is workspace-scoped
+// business-action history (campaign sent, role changed, ...), this one is
+// per-user authentication history (login/logout/refresh/failed attempts)
+// that exists before a workspace is even resolved, and has different
+// retention/query needs (e.g. "show my recent sign-ins" is a User query,
+// never a Workspace one).
+enum AuthEventType {
+  LOGIN
+  LOGIN_FAILED
+  LOGOUT
+  LOGOUT_ALL
+  TOKEN_REFRESH
+  PASSWORD_CHANGE
+  REGISTER
+}
+
+model AuthEvent {
+  id         String        @id @default(uuid())
+  userId     String?
+  email      String
+  event      AuthEventType
+  ipAddress  String?
+  userAgent  String?
+  deviceType String?
+  browser    String?
+  os         String?
+  country    String?
+  reason     String?
+  createdAt  DateTime      @default(now())
+
+  @@index([userId])
+  @@index([email])
   @@index([userId, createdAt])
+  @@index([email, event, createdAt])
 }
 
 enum ContactStatus {
@@ -231,6 +334,7 @@ enum ContactStatus {
 model Contact {
   id                 String              @id @default(uuid())
   userId             String
+  workspaceId        String
   name               String
   phoneNumber        String
   countryCode        String
@@ -247,34 +351,39 @@ model Contact {
   labels             ContactLabel[]
   campaignRecipients CampaignRecipient[]
 
-  @@unique([userId, phoneNumber])
+  @@unique([workspaceId, phoneNumber])
   @@index([userId])
-  @@index([userId, status])
+  @@index([workspaceId])
+  @@index([workspaceId, status])
 }
 
 model Group {
-  id        String         @id @default(uuid())
-  userId    String
-  name      String
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-  contacts  ContactGroup[]
+  id          String         @id @default(uuid())
+  userId      String
+  workspaceId String
+  name        String
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  contacts    ContactGroup[]
 
-  @@unique([userId, name])
+  @@unique([workspaceId, name])
   @@index([userId])
+  @@index([workspaceId])
 }
 
 model Label {
-  id        String         @id @default(uuid())
-  userId    String
-  name      String
-  color     String         @default("#3b82f6")
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-  contacts  ContactLabel[]
+  id          String         @id @default(uuid())
+  userId      String
+  workspaceId String
+  name        String
+  color       String         @default("#3b82f6")
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  contacts    ContactLabel[]
 
-  @@unique([userId, name])
+  @@unique([workspaceId, name])
   @@index([userId])
+  @@index([workspaceId])
 }
 
 model ContactGroup {
@@ -306,6 +415,7 @@ enum ImportSource {
 model ContactImportBatch {
   id             String       @id @default(uuid())
   userId         String
+  workspaceId    String
   filename       String?
   source         ImportSource
   totalRows      Int
@@ -316,6 +426,7 @@ model ContactImportBatch {
   createdAt      DateTime     @default(now())
 
   @@index([userId])
+  @@index([workspaceId])
   @@index([createdAt])
 }
 
@@ -348,6 +459,7 @@ enum CampaignAttachmentType {
 model Campaign {
   id               String              @id @default(uuid())
   userId           String
+  workspaceId      String
   name             String
   description      String?
   type             CampaignType        @default(OTHER)
@@ -368,10 +480,11 @@ model Campaign {
   queueJobs        CampaignQueueJob[]
 
   @@index([userId])
-  @@index([userId, status])
+  @@index([workspaceId])
+  @@index([workspaceId, status])
   @@index([sendStatus])
   @@index([sendStatus, scheduledAt])
-  @@index([userId, templateId])
+  @@index([workspaceId, templateId])
 }
 
 enum CampaignSendMode {
@@ -500,6 +613,7 @@ enum TemplateCategory {
 model MessageTemplate {
   id          String           @id @default(uuid())
   userId      String
+  workspaceId String
   name        String
   category    TemplateCategory @default(MARKETING)
   messageText String
@@ -507,9 +621,10 @@ model MessageTemplate {
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
-  @@unique([userId, name])
+  @@unique([workspaceId, name])
   @@index([userId])
-  @@index([userId, category])
+  @@index([workspaceId])
+  @@index([workspaceId, category])
 }
 
 // Phase 6 (Analytics & Reporting). Every statistic elsewhere is computed live
@@ -540,26 +655,29 @@ enum ReportFormat {
 }
 
 model ScheduledReport {
-  id        String          @id @default(uuid())
-  userId    String
-  name      String
-  frequency ReportFrequency
-  dataset   ReportDataset
-  format    ReportFormat
-  filters   Json?
-  enabled   Boolean         @default(true)
-  lastRunAt DateTime?
-  nextRunAt DateTime
-  createdAt DateTime        @default(now())
-  updatedAt DateTime        @updatedAt
+  id          String          @id @default(uuid())
+  userId      String
+  workspaceId String
+  name        String
+  frequency   ReportFrequency
+  dataset     ReportDataset
+  format      ReportFormat
+  filters     Json?
+  enabled     Boolean         @default(true)
+  lastRunAt   DateTime?
+  nextRunAt   DateTime
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
 
   @@index([userId])
+  @@index([workspaceId])
   @@index([enabled, nextRunAt])
 }
 
 model ReportHistory {
   id                String        @id @default(uuid())
   userId            String
+  workspaceId       String
   scheduledReportId String?
   name              String
   dataset           ReportDataset
@@ -571,5 +689,196 @@ model ReportHistory {
   createdAt         DateTime      @default(now())
 
   @@index([userId])
-  @@index([userId, createdAt])
+  @@index([workspaceId])
+  @@index([workspaceId, createdAt])
+}
+
+// Account store, migrated from a flat server/data/users.json file. `salt` is
+// legacy-only: present only on rows not yet re-hashed to bcrypt, and cleared
+// the moment a matching legacy login triggers the one-time upgrade (see
+// verifyUserCredentials in user.service.ts). Every other model's plain
+// `userId String` field (Contact, Campaign, ConversionJob, ...) intentionally
+// has no Prisma @relation here - they predate this table and matching by ID
+// value alone keeps this migration from touching any of them.
+model User {
+  id               String            @id @default(uuid())
+  email            String            @unique
+  passwordHash     String
+  salt             String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  cookiePath       String?
+  cookieUploadedAt DateTime?
+  lastWorkspaceId  String?
+  refreshTokens    RefreshToken[]
+  workspaceMembers WorkspaceMember[]
+}
+
+// Long-lived, revocable session handle backing the short-lived JWT access
+// token. Only a hash of the token is ever stored, mirroring how passwords
+// are hashed - a leaked database row can't be replayed as a live session.
+model RefreshToken {
+  id        String    @id @default(uuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  createdAt DateTime  @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  @@index([userId])
+}
+
+// ---------------------------------------------------------------------------
+// Workspace (Phase A.2) - the tenant-isolation boundary every piece of
+// WhatsApp business data belongs to. A workspace is created automatically
+// for every new user (see registerUser in user.service.ts); WorkspaceMember
+// is what makes "one user, many workspaces" and roles possible later without
+// another migration. Billing/limit fields are prepared now (Part 9) but
+// intentionally unenforced - no billing logic exists yet.
+// ---------------------------------------------------------------------------
+
+enum WorkspaceStatus {
+  ACTIVE
+  SUSPENDED
+  ARCHIVED
+}
+
+enum WorkspacePlan {
+  FREE
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MANAGER
+  OPERATOR
+  VIEWER
+}
+
+enum WorkspaceInviteStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+  REVOKED
+}
+
+model Workspace {
+  id            String                @id @default(uuid())
+  name          String
+  slug          String                @unique
+  logo          String?
+  email         String?
+  phone         String?
+  website       String?
+  address       String?
+  taxId         String?
+  timezone      String                @default("UTC")
+  country       String?
+  language      String                @default("en")
+  currency      String                @default("USD")
+  businessType  String?
+  status        WorkspaceStatus       @default(ACTIVE)
+  plan          WorkspacePlan         @default(FREE)
+  storageUsedBytes  BigInt            @default(0)
+  storageLimitBytes BigInt            @default(5368709120)
+  messageUsed   Int                   @default(0)
+  messageLimit  Int                   @default(1000)
+  contactLimit  Int                   @default(1000)
+  campaignLimit Int                   @default(50)
+  memberLimit   Int                   @default(5)
+  createdBy     String
+  createdAt     DateTime              @default(now())
+  updatedAt     DateTime              @updatedAt
+  members       WorkspaceMember[]
+  invitations   WorkspaceInvitation[]
+
+  @@index([slug])
+  @@index([status])
+}
+
+model WorkspaceMember {
+  id          String        @id @default(uuid())
+  workspaceId String
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role        WorkspaceRole @default(OWNER)
+  isActive    Boolean       @default(true)
+  joinedAt    DateTime      @default(now())
+
+  @@unique([workspaceId, userId])
+  @@index([userId])
+  @@index([workspaceId])
+  @@index([workspaceId, role])
+}
+
+model WorkspaceInvitation {
+  id          String                @id @default(uuid())
+  workspaceId String
+  workspace   Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  email       String
+  role        WorkspaceRole         @default(OPERATOR)
+  token       String                @unique
+  status      WorkspaceInviteStatus @default(PENDING)
+  invitedBy   String
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime              @default(now())
+
+  @@index([workspaceId])
+  @@index([email])
+  @@index([workspaceId, status])
+}
+
+// ---------------------------------------------------------------------------
+// RBAC (Phase A.3). Roles themselves stay the WorkspaceRole enum introduced
+// in Phase A.2 (Owner/Admin/Manager/Operator/Viewer) rather than a redundant
+// dynamic Role table - there is no "create a custom role" feature, so a
+// second source of truth for the same 5 values would just be duplication.
+// Permission is the catalog (seeded from PERMISSION_CATALOG in
+// permission.service.ts); RolePermission is the default role -> permission
+// matrix (also seeded); UserPermission is a future-ready per-user override
+// within one workspace - not yet exposed through any endpoint, but the
+// resolver already supports it so adding that later needs no schema change.
+// ---------------------------------------------------------------------------
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique
+  module      String
+  action      String
+  description String?
+  createdAt   DateTime @default(now())
+
+  rolePermissions RolePermission[]
+  userPermissions UserPermission[]
+
+  @@index([module])
+}
+
+model RolePermission {
+  id           String        @id @default(uuid())
+  role         WorkspaceRole
+  permissionId String
+  permission   Permission    @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([role, permissionId])
+  @@index([role])
+}
+
+model UserPermission {
+  id           String     @id @default(uuid())
+  workspaceId  String
+  userId       String
+  permissionId String
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+  grant        Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+
+  @@unique([workspaceId, userId, permissionId])
+  @@index([workspaceId, userId])
 }

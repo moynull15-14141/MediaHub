@@ -35,9 +35,10 @@ const validateType = (value: unknown): (typeof CAMPAIGN_TYPES)[number] => {
 };
 
 // Draft-time save only checks message syntax - variable names are now
-// open-ended per-user data (any contact field/custom field), so unknown-name
-// rejection happens later, at the Ready-status gate (see updateCampaignStatus)
-// where the full set of available variables can actually be checked.
+// open-ended per-workspace data (any contact field/custom field), so
+// unknown-name rejection happens later, at the Ready-status gate (see
+// updateCampaignStatus) where the full set of available variables can
+// actually be checked.
 export const validateMessageText = (value: unknown): string => {
   if (typeof value !== 'string' || !value.trim()) {
     throw new CampaignError('Message is required', 400);
@@ -58,7 +59,7 @@ interface RecipientInput {
   source: (typeof RECIPIENT_SOURCES)[number];
 }
 
-const validateRecipients = async (userId: string, recipients: unknown): Promise<RecipientInput[]> => {
+const validateRecipients = async (workspaceId: string, recipients: unknown): Promise<RecipientInput[]> => {
   if (!Array.isArray(recipients) || recipients.length === 0) {
     throw new CampaignError('At least one recipient is required', 400);
   }
@@ -73,7 +74,7 @@ const validateRecipients = async (userId: string, recipients: unknown): Promise<
   }
   const candidates = Array.from(deduped.values());
   const owned = await prisma.contact.findMany({
-    where: { id: { in: candidates.map((c) => c.contactId) }, userId },
+    where: { id: { in: candidates.map((c) => c.contactId) }, workspaceId },
     select: { id: true },
   });
   const ownedSet = new Set(owned.map((c) => c.id));
@@ -87,25 +88,25 @@ const validateRecipients = async (userId: string, recipients: unknown): Promise<
 // Records which template (if any) a campaign's message originated from, so
 // Phase 6's Template Analytics can compute real usage/success/read rates per
 // template instead of guessing from messageText. Silently ignored (not
-// rejected) if the template no longer belongs to the user, since this is
+// rejected) if the template no longer belongs to the workspace, since this is
 // provenance metadata, not something that should block saving a campaign.
-const resolveTemplateId = async (userId: string, templateId: unknown): Promise<string | null> => {
+const resolveTemplateId = async (workspaceId: string, templateId: unknown): Promise<string | null> => {
   if (typeof templateId !== 'string' || !templateId.trim()) return null;
-  const template = await prisma.messageTemplate.findUnique({ where: { id: templateId }, select: { userId: true } });
-  return template && template.userId === userId ? templateId : null;
+  const template = await prisma.messageTemplate.findUnique({ where: { id: templateId }, select: { workspaceId: true } });
+  return template && template.workspaceId === workspaceId ? templateId : null;
 };
 
-const checkDuplicateName = async (userId: string, name: string, excludeId?: string): Promise<boolean> => {
+const checkDuplicateName = async (workspaceId: string, name: string, excludeId?: string): Promise<boolean> => {
   const existing = await prisma.campaign.findFirst({
-    where: { userId, name: { equals: name, mode: 'insensitive' }, ...(excludeId ? { id: { not: excludeId } } : {}) },
+    where: { workspaceId, name: { equals: name, mode: 'insensitive' }, ...(excludeId ? { id: { not: excludeId } } : {}) },
     select: { id: true },
   });
   return !!existing;
 };
 
-export const findOwnedCampaign = async (campaignId: string, userId: string) => {
+export const findOwnedCampaign = async (campaignId: string, workspaceId: string) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId } });
-  if (!campaign || campaign.userId !== userId) throw new CampaignError('Campaign not found', 404);
+  if (!campaign || campaign.workspaceId !== workspaceId) throw new CampaignError('Campaign not found', 404);
   return campaign;
 };
 
@@ -127,7 +128,7 @@ export const toPublicCampaignSummary = (campaign: any, createdByEmail: string | 
 });
 
 const toPublicCampaignDetail = async (campaign: any) => {
-  const ownerEmail = findUserById(campaign.userId)?.email ?? null;
+  const ownerEmail = (await findUserById(campaign.userId))?.email ?? null;
   let attachment = null;
   if (campaign.attachment) {
     attachment = {
@@ -171,7 +172,7 @@ export interface ListCampaignsOptions {
   status?: string;
 }
 
-export const listCampaigns = async (userId: string, options: ListCampaignsOptions) => {
+export const listCampaigns = async (workspaceId: string, options: ListCampaignsOptions) => {
   const page = Math.max(1, Number(options.page) || 1);
   const pageSize = Math.min(100, Math.max(1, Number(options.pageSize) || 25));
 
@@ -179,7 +180,7 @@ export const listCampaigns = async (userId: string, options: ListCampaignsOption
     throw new CampaignError(`Invalid status filter: ${options.status}`, 400);
   }
 
-  const where: any = { userId };
+  const where: any = { workspaceId };
   if (options.search?.trim()) where.name = { contains: options.search.trim(), mode: 'insensitive' };
   if (options.status) where.status = options.status;
 
@@ -194,9 +195,20 @@ export const listCampaigns = async (userId: string, options: ListCampaignsOption
     prisma.campaign.count({ where }),
   ]);
 
-  const ownerEmail = findUserById(userId)?.email ?? null;
+  // Each campaign can have a different creator within a shared workspace, so
+  // resolve emails per-campaign rather than assuming one owner for the list.
+  const emailByUserId = new Map<string, string | null>();
+  const campaignsWithOwner = await Promise.all(
+    campaigns.map(async (c) => {
+      if (!emailByUserId.has(c.userId)) {
+        emailByUserId.set(c.userId, (await findUserById(c.userId))?.email ?? null);
+      }
+      return toPublicCampaignSummary(c, emailByUserId.get(c.userId) ?? null);
+    }),
+  );
+
   return {
-    campaigns: campaigns.map((c) => toPublicCampaignSummary(c, ownerEmail)),
+    campaigns: campaignsWithOwner,
     total,
     page,
     pageSize,
@@ -204,24 +216,25 @@ export const listCampaigns = async (userId: string, options: ListCampaignsOption
   };
 };
 
-export const getCampaign = async (userId: string, campaignId: string) => {
+export const getCampaign = async (workspaceId: string, campaignId: string) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, include: CAMPAIGN_INCLUDE });
-  if (!campaign || campaign.userId !== userId) throw new CampaignError('Campaign not found', 404);
+  if (!campaign || campaign.workspaceId !== workspaceId) throw new CampaignError('Campaign not found', 404);
   return toPublicCampaignDetail(campaign);
 };
 
-export const createCampaign = async (userId: string, body: any) => {
+export const createCampaign = async (workspaceId: string, userId: string, body: any) => {
   const name = sanitizeText(body?.name, NAME_MAX);
   if (!name) throw new CampaignError('Campaign name is required', 400);
   const description = sanitizeText(body?.description, DESCRIPTION_MAX);
   const type = validateType(body?.type);
   const messageText = validateMessageText(body?.messageText);
-  const recipients = await validateRecipients(userId, body?.recipients);
-  const templateId = await resolveTemplateId(userId, body?.templateId);
-  const nameAlreadyExists = await checkDuplicateName(userId, name);
+  const recipients = await validateRecipients(workspaceId, body?.recipients);
+  const templateId = await resolveTemplateId(workspaceId, body?.templateId);
+  const nameAlreadyExists = await checkDuplicateName(workspaceId, name);
 
   const campaign = await prisma.campaign.create({
     data: {
+      workspaceId,
       userId,
       name,
       description,
@@ -237,17 +250,17 @@ export const createCampaign = async (userId: string, body: any) => {
   return { ...(await toPublicCampaignDetail(campaign)), nameAlreadyExists };
 };
 
-export const updateCampaign = async (userId: string, campaignId: string, body: any) => {
-  await findOwnedCampaign(campaignId, userId);
+export const updateCampaign = async (workspaceId: string, campaignId: string, body: any) => {
+  await findOwnedCampaign(campaignId, workspaceId);
 
   const name = sanitizeText(body?.name, NAME_MAX);
   if (!name) throw new CampaignError('Campaign name is required', 400);
   const description = sanitizeText(body?.description, DESCRIPTION_MAX);
   const type = validateType(body?.type);
   const messageText = validateMessageText(body?.messageText);
-  const recipients = await validateRecipients(userId, body?.recipients);
-  const templateId = await resolveTemplateId(userId, body?.templateId);
-  const nameAlreadyExists = await checkDuplicateName(userId, name, campaignId);
+  const recipients = await validateRecipients(workspaceId, body?.recipients);
+  const templateId = await resolveTemplateId(workspaceId, body?.templateId);
+  const nameAlreadyExists = await checkDuplicateName(workspaceId, name, campaignId);
 
   await prisma.$transaction([
     prisma.campaignRecipient.deleteMany({ where: { campaignId } }),
@@ -268,16 +281,16 @@ export const updateCampaign = async (userId: string, campaignId: string, body: a
   return { ...(await toPublicCampaignDetail(updated)), nameAlreadyExists };
 };
 
-export const deleteCampaign = async (userId: string, campaignId: string) => {
+export const deleteCampaign = async (workspaceId: string, campaignId: string) => {
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, include: { attachment: true } });
-  if (!campaign || campaign.userId !== userId) throw new CampaignError('Campaign not found', 404);
+  if (!campaign || campaign.workspaceId !== workspaceId) throw new CampaignError('Campaign not found', 404);
   if (campaign.attachment) await deleteFromR2([campaign.attachment.storageKey]);
   await prisma.campaign.delete({ where: { id: campaignId } });
 };
 
-export const duplicateCampaign = async (userId: string, campaignId: string) => {
+export const duplicateCampaign = async (workspaceId: string, userId: string, campaignId: string) => {
   const original = await prisma.campaign.findUnique({ where: { id: campaignId }, include: CAMPAIGN_INCLUDE });
-  if (!original || original.userId !== userId) throw new CampaignError('Campaign not found', 404);
+  if (!original || original.workspaceId !== workspaceId) throw new CampaignError('Campaign not found', 404);
 
   const newId = crypto.randomUUID();
   let attachmentCreate: any;
@@ -299,6 +312,7 @@ export const duplicateCampaign = async (userId: string, campaignId: string) => {
   const duplicate = await prisma.campaign.create({
     data: {
       id: newId,
+      workspaceId,
       userId,
       name: `${original.name} (Copy)`,
       description: original.description,
@@ -315,12 +329,12 @@ export const duplicateCampaign = async (userId: string, campaignId: string) => {
   return toPublicCampaignDetail(duplicate);
 };
 
-export const updateCampaignStatus = async (userId: string, campaignId: string, status: unknown) => {
+export const updateCampaignStatus = async (workspaceId: string, campaignId: string, status: unknown) => {
   if (typeof status !== 'string' || !CAMPAIGN_STATUSES.includes(status as any)) {
     throw new CampaignError(`Invalid status: ${status}`, 400);
   }
   const campaign = await prisma.campaign.findUnique({ where: { id: campaignId }, include: { recipients: true } });
-  if (!campaign || campaign.userId !== userId) throw new CampaignError('Campaign not found', 404);
+  if (!campaign || campaign.workspaceId !== workspaceId) throw new CampaignError('Campaign not found', 404);
 
   if (status === 'READY') {
     if (campaign.recipients.length === 0) {
@@ -329,7 +343,7 @@ export const updateCampaignStatus = async (userId: string, campaignId: string, s
     if (!campaign.messageText.trim()) {
       throw new CampaignError('Add a message before marking this campaign Ready', 400);
     }
-    const availableKeys = await getAvailableVariableKeysCached(userId);
+    const availableKeys = await getAvailableVariableKeysCached(workspaceId);
     const validation = validateTemplate(campaign.messageText, availableKeys);
     if (!validation.isValid) {
       const badVariable = validation.variables.find((v) => v.status === 'unknown');

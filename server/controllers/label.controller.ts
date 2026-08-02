@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { getUserId } from '../lib/require-auth';
+import { getWorkspaceId } from '../lib/require-workspace';
 import { listLabels, createLabel, renameLabel, deleteLabel, assignLabelsToContact, LabelError } from '../services/label.service';
 
 const handleLabelError = (err: any, res: Response, fallback: string) => {
@@ -13,7 +14,7 @@ const handleLabelError = (err: any, res: Response, fallback: string) => {
 
 export const listHandler = async (req: Request, res: Response) => {
   try {
-    const labels = await listLabels(getUserId(req), typeof req.query.search === 'string' ? req.query.search : undefined);
+    const labels = await listLabels(getWorkspaceId(req), typeof req.query.search === 'string' ? req.query.search : undefined);
     res.json(labels);
   } catch (err) {
     handleLabelError(err, res, 'Failed to list labels');
@@ -22,7 +23,7 @@ export const listHandler = async (req: Request, res: Response) => {
 
 export const createHandler = async (req: Request, res: Response) => {
   try {
-    const label = await createLabel(getUserId(req), req.body);
+    const label = await createLabel(getWorkspaceId(req), getUserId(req), req.body);
     res.status(201).json(label);
   } catch (err) {
     handleLabelError(err, res, 'Failed to create label');
@@ -31,7 +32,7 @@ export const createHandler = async (req: Request, res: Response) => {
 
 export const renameHandler = async (req: Request, res: Response) => {
   try {
-    const label = await renameLabel(getUserId(req), req.params.id, req.body);
+    const label = await renameLabel(getWorkspaceId(req), req.params.id, req.body);
     res.json(label);
   } catch (err) {
     handleLabelError(err, res, 'Failed to update label');
@@ -40,7 +41,7 @@ export const renameHandler = async (req: Request, res: Response) => {
 
 export const deleteHandler = async (req: Request, res: Response) => {
   try {
-    await deleteLabel(getUserId(req), req.params.id);
+    await deleteLabel(getWorkspaceId(req), req.params.id);
     res.status(204).send();
   } catch (err) {
     handleLabelError(err, res, 'Failed to delete label');
@@ -49,7 +50,7 @@ export const deleteHandler = async (req: Request, res: Response) => {
 
 export const assignToContactHandler = async (req: Request, res: Response) => {
   try {
-    const result = await assignLabelsToContact(getUserId(req), req.params.id, req.body?.labelIds);
+    const result = await assignLabelsToContact(getWorkspaceId(req), req.params.id, req.body?.labelIds);
     res.json(result);
   } catch (err) {
     handleLabelError(err, res, 'Failed to assign labels');

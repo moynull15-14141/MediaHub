@@ -158,7 +158,7 @@ export interface ListContactsOptions {
   labelId?: string;
 }
 
-export const listContacts = async (userId: string, options: ListContactsOptions) => {
+export const listContacts = async (workspaceId: string, options: ListContactsOptions) => {
   const page = Math.max(1, Number(options.page) || 1);
   const pageSize = Math.min(200, Math.max(1, Number(options.pageSize) || 25));
 
@@ -166,7 +166,7 @@ export const listContacts = async (userId: string, options: ListContactsOptions)
     throw new ContactError(`Invalid status filter: ${options.status}`, 400);
   }
 
-  const where: any = { userId };
+  const where: any = { workspaceId };
   if (options.search) {
     const search = options.search.trim();
     if (search) {
@@ -202,21 +202,22 @@ export const listContacts = async (userId: string, options: ListContactsOptions)
   };
 };
 
-const findOwnedContact = async (contactId: string, userId: string) => {
+const findOwnedContact = async (contactId: string, workspaceId: string) => {
   const contact = await prisma.contact.findUnique({ where: { id: contactId } });
-  if (!contact || contact.userId !== userId) throw new ContactError('Contact not found', 404);
+  if (!contact || contact.workspaceId !== workspaceId) throw new ContactError('Contact not found', 404);
   return contact;
 };
 
-export const createContact = async (userId: string, body: any) => {
+export const createContact = async (workspaceId: string, userId: string, body: any) => {
   const input = validateContactInput(body, true) as ContactInput;
   const { e164, countryCode } = normalizePhoneNumber(input.phoneNumber, input.countryCode);
 
-  const existing = await prisma.contact.findUnique({ where: { userId_phoneNumber: { userId, phoneNumber: e164 } } });
+  const existing = await prisma.contact.findUnique({ where: { workspaceId_phoneNumber: { workspaceId, phoneNumber: e164 } } });
   if (existing) throw new ContactError('A contact with this phone number already exists', 409);
 
   const contact = await prisma.contact.create({
     data: {
+      workspaceId,
       userId,
       name: input.name,
       phoneNumber: e164,
@@ -233,17 +234,17 @@ export const createContact = async (userId: string, body: any) => {
   return toPublicContact(contact);
 };
 
-export const updateContact = async (userId: string, contactId: string, body: any) => {
-  await findOwnedContact(contactId, userId);
+export const updateContact = async (workspaceId: string, contactId: string, body: any) => {
+  await findOwnedContact(contactId, workspaceId);
   const input = validateContactInput(body, false);
 
   const data: any = { ...input };
   if (input.phoneNumber || input.countryCode) {
-    const existing = await findOwnedContact(contactId, userId);
+    const existing = await findOwnedContact(contactId, workspaceId);
     const phoneNumber = input.phoneNumber ?? existing.phoneNumber;
     const countryCode = input.countryCode ?? existing.countryCode;
     const { e164, countryCode: normalizedCountry } = normalizePhoneNumber(phoneNumber, countryCode);
-    const conflict = await prisma.contact.findUnique({ where: { userId_phoneNumber: { userId, phoneNumber: e164 } } });
+    const conflict = await prisma.contact.findUnique({ where: { workspaceId_phoneNumber: { workspaceId, phoneNumber: e164 } } });
     if (conflict && conflict.id !== contactId) {
       throw new ContactError('A contact with this phone number already exists', 409);
     }
@@ -255,15 +256,15 @@ export const updateContact = async (userId: string, contactId: string, body: any
   return toPublicContact(contact);
 };
 
-export const deleteContact = async (userId: string, contactId: string) => {
-  await findOwnedContact(contactId, userId);
+export const deleteContact = async (workspaceId: string, contactId: string) => {
+  await findOwnedContact(contactId, workspaceId);
   await prisma.contact.delete({ where: { id: contactId } });
 };
 
-export const bulkDeleteContacts = async (userId: string, ids: unknown) => {
+export const bulkDeleteContacts = async (workspaceId: string, ids: unknown) => {
   if (!Array.isArray(ids) || ids.length === 0 || !ids.every((id) => typeof id === 'string')) {
     throw new ContactError('ids must be a non-empty array of contact IDs', 400);
   }
-  const result = await prisma.contact.deleteMany({ where: { userId, id: { in: ids } } });
+  const result = await prisma.contact.deleteMany({ where: { workspaceId, id: { in: ids } } });
   return { deletedCount: result.count };
 };

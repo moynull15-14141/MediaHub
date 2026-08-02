@@ -110,7 +110,7 @@ const isRowEmpty = (row: Record<string, any>): boolean =>
 const hasInvalidCharacters = (value: string | undefined): boolean =>
   typeof value === 'string' && CONTROL_CHAR_PATTERN.test(value);
 
-export const validateRows = async (userId: string, rawRows: Record<string, any>[]): Promise<ImportPreview> => {
+export const validateRows = async (workspaceId: string, rawRows: Record<string, any>[]): Promise<ImportPreview> => {
   if (rawRows.length > MAX_ROWS) {
     throw new ContactImportError(`Too many rows: ${rawRows.length}. Maximum is ${MAX_ROWS}.`, 400);
   }
@@ -175,7 +175,7 @@ export const validateRows = async (userId: string, rawRows: Record<string, any>[
   const candidatePhones = rows.filter((r) => r.status === 'valid').map((r) => r.normalizedPhone!) ;
   if (candidatePhones.length > 0) {
     const existing = await prisma.contact.findMany({
-      where: { userId, phoneNumber: { in: candidatePhones } },
+      where: { workspaceId, phoneNumber: { in: candidatePhones } },
       select: { phoneNumber: true },
     });
     const existingSet = new Set(existing.map((c) => c.phoneNumber));
@@ -207,6 +207,7 @@ export interface CommitImportResult {
 }
 
 export const commitImport = async (
+  workspaceId: string,
   userId: string,
   rows: ImportRow[],
   meta: { filename?: string; source: 'CSV' | 'XLSX' },
@@ -218,7 +219,7 @@ export const commitImport = async (
 
   // Re-check against the DB at commit time to avoid a race with concurrent imports.
   const existing = await prisma.contact.findMany({
-    where: { userId, phoneNumber: { in: validRows.map((r) => r.normalizedPhone!) } },
+    where: { workspaceId, phoneNumber: { in: validRows.map((r) => r.normalizedPhone!) } },
     select: { phoneNumber: true },
   });
   const existingSet = new Set(existing.map((c) => c.phoneNumber));
@@ -228,6 +229,7 @@ export const commitImport = async (
   if (toInsert.length > 0) {
     await prisma.contact.createMany({
       data: toInsert.map((r) => ({
+        workspaceId,
         userId,
         name: r.name,
         phoneNumber: r.normalizedPhone!,
@@ -252,6 +254,7 @@ export const commitImport = async (
 
   await prisma.contactImportBatch.create({
     data: {
+      workspaceId,
       userId,
       filename: meta.filename,
       source: meta.source,
