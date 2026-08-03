@@ -3,6 +3,7 @@ import { renderTemplate } from './template-engine.service';
 import { findOwnedCampaign } from './campaign.service';
 import { emitCampaignProgress } from '../lib/campaign-events';
 import { logAudit } from './whatsapp-audit.service';
+import { resolveSendingAccount } from './account-routing.service';
 
 export class CampaignQueueError extends Error {
   constructor(message: string, public status: number) {
@@ -15,23 +16,35 @@ const CLAIMABLE_STATUSES: ('PENDING' | 'WAITING' | 'RETRY')[] = ['PENDING', 'WAI
 
 // Single place that decides "which account does this campaign send from" -
 // used by both the start-gate and job generation so they can never disagree.
-// Prefers the campaign's explicitly assigned account (Phase B.2); falls back
-// to the campaign owner's own account for campaigns created before that
-// field existed, so nothing pre-existing changes behavior.
-export const resolveAccountForCampaign = async (campaign: { whatsappAccountId: string | null; userId: string }) => {
-  if (campaign.whatsappAccountId) {
-    return prisma.whatsappAccount.findUnique({ where: { id: campaign.whatsappAccountId } });
-  }
-  return prisma.whatsappAccount.findUnique({ where: { userId: campaign.userId } });
+// Phase B.5 - delegates to account-routing.service.ts's Smart Routing chain
+// (Explicit -> Healthy Default -> Highest Priority -> Lowest Queue -> Best
+// Quality -> none available) instead of the old "explicit id, else owner's
+// own account, full stop" - same exported name/call sites as before
+// (generateQueueJobs/requireConnectedAccount below), so nothing importing
+// this function needs to change, only what it's able to find changes.
+export const resolveAccountForCampaign = async (campaign: { id: string; whatsappAccountId: string | null; userId: string; workspaceId: string }) => {
+  const { account } = await resolveSendingAccount(campaign);
+  return account;
 };
 
-const requireConnectedAccount = async (campaign: { whatsappAccountId: string | null; userId: string }) => {
-  const account = await resolveAccountForCampaign(campaign);
-  if (!account || account.status !== 'CONNECTED') {
-    throw new CampaignQueueError('Connect a WhatsApp account before sending campaigns', 400);
+// Persists a routing decision that picked a DIFFERENT account than the
+// campaign's stored whatsappAccountId (a fallback was used because the
+// explicit/legacy account wasn't usable) - so the worker's dispatch loop,
+// which reads whatsappAccountId fresh every tick, and every other reader of
+// this field, see the same account routing just chose, not the stale one.
+const persistRoutingDecision = async (campaignId: string, currentAccountId: string | null, resolvedAccountId: string, userId: string) => {
+  if (currentAccountId === resolvedAccountId) return;
+  await prisma.campaign.update({ where: { id: campaignId }, data: { whatsappAccountId: resolvedAccountId } });
+  await logAudit(userId, 'CAMPAIGN_ACCOUNT_ROUTED', `${campaignId}: ${currentAccountId ?? 'none'} -> ${resolvedAccountId}`);
+};
+
+const requireConnectedAccount = async (campaign: { id: string; whatsappAccountId: string | null; userId: string; workspaceId: string }) => {
+  const { account, reason } = await resolveSendingAccount(campaign);
+  if (!account) {
+    throw new CampaignQueueError('No healthy WhatsApp account is available to send this campaign', 400);
   }
-  if (!account.sendingEnabled) {
-    throw new CampaignQueueError('The selected WhatsApp account has sending disabled', 400);
+  if (reason === 'FALLBACK') {
+    await persistRoutingDecision(campaign.id, campaign.whatsappAccountId, account.id, campaign.userId);
   }
   return account;
 };

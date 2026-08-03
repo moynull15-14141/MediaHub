@@ -91,6 +91,21 @@ export const config = {
   requestBodyLimit: process.env.REQUEST_BODY_LIMIT || '2mb',
 
   trustProxy: bool(process.env.TRUST_PROXY, true),
+
+  // Phase B.4 - Webhook Automation & Delivery Reliability. Retry ladder is a
+  // fixed shape (1m/5m/15m/1h, per the brief) - only how many rungs of it get
+  // used before dead-lettering is configurable, via maxRetryAttempts.
+  webhook: {
+    maxRetryAttempts: int(process.env.WEBHOOK_MAX_RETRY_ATTEMPTS, 4),
+    retryLadderMs: [60_000, 5 * 60_000, 15 * 60_000, 60 * 60_000],
+    reconcileStaleMs: int(process.env.WEBHOOK_RECONCILE_STALE_MINUTES, 120) * 60_000,
+    reconcileIntervalMs: int(process.env.WEBHOOK_RECONCILE_INTERVAL_MINUTES, 15) * 60_000,
+    eventRetentionDays: int(process.env.WEBHOOK_EVENT_RETENTION_DAYS, 30),
+    offlineAlertMs: int(process.env.WEBHOOK_OFFLINE_ALERT_MINUTES, 120) * 60_000,
+    signatureFailureAlertThreshold: int(process.env.WEBHOOK_SIGNATURE_FAILURE_ALERT_THRESHOLD, 5),
+    deadLetterAlertThreshold: int(process.env.WEBHOOK_DEAD_LETTER_ALERT_THRESHOLD, 5),
+    retryFailureAlertThreshold: int(process.env.WEBHOOK_RETRY_FAILURE_ALERT_THRESHOLD, 10),
+  },
 } as const;
 
 export type AppConfig = typeof config;

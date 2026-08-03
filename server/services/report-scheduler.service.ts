@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { generateReport, computeNextRunAt } from './scheduled-report.service';
+import { recordSchedulerTick } from '../lib/scheduler-registry';
 
 // Mirrors the existing campaign-queue-worker.service.ts polling convention
 // (setInterval + a re-entrancy guard) rather than introducing a second
@@ -51,11 +52,14 @@ const runDueReports = async (): Promise<void> => {
 const tick = async (): Promise<void> => {
   if (tickRunning) return;
   tickRunning = true;
+  const startedAt = Date.now();
   try {
     await runDueReports();
     lastTickAt = new Date();
+    recordSchedulerTick('report-scheduler', Date.now() - startedAt);
   } catch (err) {
     console.error('Report scheduler tick error:', err);
+    recordSchedulerTick('report-scheduler', Date.now() - startedAt, err instanceof Error ? err.message : String(err));
   } finally {
     tickRunning = false;
   }

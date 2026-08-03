@@ -8,6 +8,7 @@ import { sanitizeText } from './contact.service';
 import { inferAttachmentType, getMaxBytesForType } from './campaign-attachment.service';
 import { pauseCampaignsForAccountFailover, resumeAutoPausedCampaignsForAccount } from './campaign-queue.service';
 import { requiresAutoPause } from './meta-validation.service';
+import { registerAccountWebhook } from './webhook-registration.service';
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 const ALLOWED_LOGO_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']);
@@ -57,6 +58,13 @@ export const toPublicAccount = (account: any) => ({
   businessManagerId: account.businessManagerId,
   messagingLimitTier: account.messagingLimitTier,
   webhookVerified: account.webhookVerified,
+  // Phase B.4 - previously only exposed via the self-only GET
+  // /account/webhook-monitor endpoint (getWebhookMonitor below); also
+  // surfaced here so the workspace-wide Accounts dashboard (which lists
+  // every member's account via listWorkspaceAccounts, not just the caller's
+  // own) can show "Last Event"/"Last Delivery" for each of them too.
+  webhookLastPingAt: account.webhookLastPingAt,
+  webhookLastDeliveryAt: account.webhookLastDeliveryAt,
   workingHoursEnabled: account.workingHoursEnabled,
   workingHours: account.workingHours,
   defaultTemplateId: account.defaultTemplateId,
@@ -116,6 +124,21 @@ export const toPublicAccount = (account: any) => ({
   consecutiveValidationFailures: account.consecutiveValidationFailures,
   connectionStateUpdatedAt: account.connectionStateUpdatedAt,
   validationLatency: account.validationLatency,
+  // Phase B.4 - Webhook Automation & Delivery Reliability, additive for the
+  // same reason as the Phase B.1/B.2/B.3 blocks above. Live event-volume/
+  // latency/failure-rate stats are NOT here (they're computed on demand by
+  // webhook-health.service.ts, same "derived, not stored" convention as
+  // pendingJobCount) - only the persisted state that toPublicAccount already
+  // exposes elsewhere for its analogous B.1-B.3 fields.
+  webhookVerifiedAt: account.webhookVerifiedAt,
+  webhookLastVerificationAttempt: account.webhookLastVerificationAttempt,
+  webhookVerificationError: account.webhookVerificationError,
+  webhookSubscriptionAttempts: account.webhookSubscriptionAttempts,
+  webhookSubscriptionError: account.webhookSubscriptionError,
+  webhookSignatureFailures: account.webhookSignatureFailures,
+  webhookLastSignatureFailureAt: account.webhookLastSignatureFailureAt,
+  webhookHealthStatus: account.webhookHealthStatus,
+  webhookLastHealthCheckAt: account.webhookLastHealthCheckAt,
   createdAt: account.createdAt,
   updatedAt: account.updatedAt,
 });
@@ -208,6 +231,20 @@ export const connectAccount = async (workspaceId: string, userId: string, body: 
   });
 
   await logAudit(userId, 'ACCOUNT_CONNECTED', `Phone number ID ${input.phoneNumberId}`);
+
+  // Phase B.4 - automatic webhook registration on manual connect too (not
+  // just Embedded Signup), per the brief. Only possible when a WABA id was
+  // supplied (manual connect's wabaId is optional - a phone-number-only
+  // connect has no /{waba_id}/subscribed_apps endpoint to call); never
+  // blocks or fails the connect itself.
+  if (input.wabaId) {
+    const result = await registerAccountWebhook(account.id, input.wabaId, input.accessToken, userId);
+    if (result.subscribed) {
+      const withWebhook = await prisma.whatsappAccount.findUniqueOrThrow({ where: { id: account.id } });
+      return toPublicAccount(withWebhook);
+    }
+  }
+
   return toPublicAccount(account);
 };
 

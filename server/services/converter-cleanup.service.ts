@@ -2,6 +2,7 @@ import fs from 'fs';
 import { prisma } from '../lib/prisma';
 import { getJobDir } from '../lib/converter-paths';
 import { deleteFromR2 } from '../lib/r2';
+import { recordSchedulerTick } from '../lib/scheduler-registry';
 
 const STALE_CONVERTING_MINUTES = Number(process.env.CONVERTER_STALE_MINUTES) || 30;
 const ABANDONED_QUEUED_HOURS = Number(process.env.CONVERTER_ABANDONED_HOURS) || 6;
@@ -52,12 +53,15 @@ const sweepAbandonedUploads = async () => {
 };
 
 const runSweep = async () => {
+  const startedAt = Date.now();
   try {
     await sweepExpiredCompleted();
     await sweepStaleConverting();
     await sweepAbandonedUploads();
+    recordSchedulerTick('converter-cleanup', Date.now() - startedAt);
   } catch (err) {
     console.error('Converter cleanup sweep failed:', err);
+    recordSchedulerTick('converter-cleanup', Date.now() - startedAt, err instanceof Error ? err.message : String(err));
   }
 };
 

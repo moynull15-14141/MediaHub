@@ -2,6 +2,7 @@ import fs from 'fs';
 import { prisma } from '../lib/prisma';
 import { getImageJobDir } from '../lib/image-paths';
 import { deleteFromR2 } from '../lib/r2';
+import { recordSchedulerTick } from '../lib/scheduler-registry';
 
 const ABANDONED_QUEUED_HOURS = Number(process.env.IMAGE_ABANDONED_HOURS) || 6;
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
@@ -46,12 +47,15 @@ const sweepFailed = async () => {
 };
 
 const runSweep = async () => {
+  const startedAt = Date.now();
   try {
     await sweepExpiredCompleted();
     await sweepAbandonedUploads();
     await sweepFailed();
+    recordSchedulerTick('image-cleanup', Date.now() - startedAt);
   } catch (err) {
     console.error('Image cleanup sweep failed:', err);
+    recordSchedulerTick('image-cleanup', Date.now() - startedAt, err instanceof Error ? err.message : String(err));
   }
 };
 

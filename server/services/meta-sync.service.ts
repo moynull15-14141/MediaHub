@@ -4,6 +4,7 @@ import { decryptToken } from '../lib/whatsapp-crypto';
 import { fetchPhoneNumberDetails, fetchWabaDetails, fetchBusinessDetails, debugToken, WhatsappGraphError } from '../lib/whatsapp-graph';
 import { toPublicAccount, qualityToHealth, WhatsappAccountError } from './whatsapp-account.service';
 import { logAudit } from './whatsapp-audit.service';
+import { getWebhookHealthBatch } from './webhook-health.service';
 
 // Shared by both the Embedded Signup completion (meta-signup.service.ts,
 // fetching for the first time) and this file's syncAccount (re-fetching an
@@ -128,6 +129,17 @@ export const listWorkspaceAccounts = async (workspaceId: string) => {
     where: { workspaceId },
     orderBy: { createdAt: 'asc' },
   });
-  const pendingCounts = await getPendingJobCountsByAccountId(workspaceId, accounts);
-  return accounts.map((a) => ({ ...toPublicAccount(a), pendingJobCount: pendingCounts.get(a.id) ?? 0 }));
+  const [pendingCounts, webhookHealth] = await Promise.all([
+    getPendingJobCountsByAccountId(workspaceId, accounts),
+    // Phase B.4 - live webhook stats (events today/hour, avg processing
+    // time, retries, dead letters, failure rate) merged in for every account
+    // in the workspace, not just the caller's own - same "computed live,
+    // batched, no N+1" treatment as pendingJobCount above.
+    getWebhookHealthBatch(accounts),
+  ]);
+  return accounts.map((a) => ({
+    ...toPublicAccount(a),
+    pendingJobCount: pendingCounts.get(a.id) ?? 0,
+    webhookHealth: webhookHealth.get(a.id) ?? null,
+  }));
 };

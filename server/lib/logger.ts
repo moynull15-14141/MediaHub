@@ -39,3 +39,5 @@ export const errorLogger = makeLogger('error');
 export const auditLogger = makeLogger('audit');
 export const workerLogger = makeLogger('worker');
 export const tokenLogger = makeLogger('token'); // Phase B.3 - token lifecycle state transitions
+export const webhookLogger = makeLogger('webhook'); // Phase B.4 - webhook automation & delivery reliability
+export const operationsLogger = makeLogger('operations'); // Phase B.5 - routing, failover, rate limiting, quality monitoring

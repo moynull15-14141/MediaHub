@@ -133,6 +133,16 @@ export const subscribeToWebhooks = async (wabaId: string, accessToken: string): 
   return Boolean(body?.success);
 };
 
+// Phase B.4 - reads Meta's own record of which apps are currently subscribed
+// to this WABA's webhooks (GET, as opposed to subscribeToWebhooks' POST
+// above) - the basis of the on-demand "Verify webhook" self-check, distinct
+// from the passive GET /webhook challenge Meta initiates on its own schedule.
+export const getWebhookSubscriptionStatus = async (wabaId: string, accessToken: string): Promise<boolean> => {
+  const body = await graphGet(`${encodeURIComponent(wabaId)}/subscribed_apps`, { access_token: accessToken });
+  const apps = Array.isArray(body?.data) ? body.data : [];
+  return apps.length > 0;
+};
+
 export interface TokenDebugInfo {
   isValid: boolean;
   expiresAt: Date | null;

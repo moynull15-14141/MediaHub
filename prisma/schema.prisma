@@ -157,88 +157,88 @@ enum WhatsappConnectionHealth {
 }
 
 model WhatsappAccount {
-  id                   String                @id @default(uuid())
-  userId               String                @unique
-  workspaceId          String
-  phoneNumberId        String
-  wabaId               String?
-  displayPhoneNumber   String?
-  businessName         String?
-  qualityRating        String?
-  healthStatus         WhatsappHealthStatus  @default(UNKNOWN)
-  status               WhatsappAccountStatus @default(DISCONNECTED)
-  accessTokenEncrypted String
-  lastErrorMessage     String?
-  lastSyncAt           DateTime?
-  defaultCountryCode   String?
-  autoSkipDuplicates   Boolean               @default(true)
-  rateLimitPerMinute   Int                   @default(20)
-  minDelaySeconds      Int                   @default(5)
-  maxDelaySeconds      Int                   @default(10)
-  maxRetries           Int                   @default(3)
-  maxConcurrentJobs    Int                   @default(3)
-  sendTimezone         String                @default("UTC")
-  batchSize            Int                   @default(1000)
-  retryDelaySeconds    Int                   @default(30)
-  businessManagerId    String?
-  messagingLimitTier   String?
-  tokenCreatedAt       DateTime?
-  tokenUpdatedAt       DateTime?
-  webhookVerified      Boolean               @default(false)
-  webhookLastPingAt    DateTime?
-  webhookLastDeliveryAt DateTime?
-  webhookLastReadAt    DateTime?
-  webhookLastErrorAt   DateTime?
-  webhookLastErrorMessage String?
-  workingHoursEnabled  Boolean               @default(false)
-  workingHours         Json?
-  defaultTemplateId    String?
-  defaultFooter        String?
-  defaultAttachmentKey String?
-  defaultAttachmentType String?
+  id                        String                @id @default(uuid())
+  userId                    String                @unique
+  workspaceId               String
+  phoneNumberId             String
+  wabaId                    String?
+  displayPhoneNumber        String?
+  businessName              String?
+  qualityRating             String?
+  healthStatus              WhatsappHealthStatus  @default(UNKNOWN)
+  status                    WhatsappAccountStatus @default(DISCONNECTED)
+  accessTokenEncrypted      String
+  lastErrorMessage          String?
+  lastSyncAt                DateTime?
+  defaultCountryCode        String?
+  autoSkipDuplicates        Boolean               @default(true)
+  rateLimitPerMinute        Int                   @default(20)
+  minDelaySeconds           Int                   @default(5)
+  maxDelaySeconds           Int                   @default(10)
+  maxRetries                Int                   @default(3)
+  maxConcurrentJobs         Int                   @default(3)
+  sendTimezone              String                @default("UTC")
+  batchSize                 Int                   @default(1000)
+  retryDelaySeconds         Int                   @default(30)
+  businessManagerId         String?
+  messagingLimitTier        String?
+  tokenCreatedAt            DateTime?
+  tokenUpdatedAt            DateTime?
+  webhookVerified           Boolean               @default(false)
+  webhookLastPingAt         DateTime?
+  webhookLastDeliveryAt     DateTime?
+  webhookLastReadAt         DateTime?
+  webhookLastErrorAt        DateTime?
+  webhookLastErrorMessage   String?
+  workingHoursEnabled       Boolean               @default(false)
+  workingHours              Json?
+  defaultTemplateId         String?
+  defaultFooter             String?
+  defaultAttachmentKey      String?
+  defaultAttachmentType     String?
   defaultAttachmentFilename String?
   defaultAttachmentMimeType String?
-  companyName          String?
-  logoKey              String?
-  language             String                @default("en")
-  notifyBrowser        Boolean               @default(true)
-  notifyEmail          Boolean               @default(false)
-  notifyCampaignCompleted Boolean            @default(true)
-  notifyCampaignFailed Boolean               @default(true)
-  notifyWebhookOffline Boolean               @default(true)
-  notifyQualityDrop    Boolean               @default(true)
-  notifyApiFailure     Boolean               @default(true)
+  companyName               String?
+  logoKey                   String?
+  language                  String                @default("en")
+  notifyBrowser             Boolean               @default(true)
+  notifyEmail               Boolean               @default(false)
+  notifyCampaignCompleted   Boolean               @default(true)
+  notifyCampaignFailed      Boolean               @default(true)
+  notifyWebhookOffline      Boolean               @default(true)
+  notifyQualityDrop         Boolean               @default(true)
+  notifyApiFailure          Boolean               @default(true)
 
   // Phase B.1 - Meta Embedded Signup. All nullable/defaulted so existing
   // manually-connected rows (connectionSource defaults to MANUAL) need no
   // backfill and every pre-existing read of this model is unaffected.
-  connectionSource     WhatsappConnectionSource @default(MANUAL)
-  connectionHealth     WhatsappConnectionHealth @default(DISCONNECTED)
-  verifiedName         String?
-  metaBusinessId       String?
-  metaBusinessName     String?
+  connectionSource           WhatsappConnectionSource @default(MANUAL)
+  connectionHealth           WhatsappConnectionHealth @default(DISCONNECTED)
+  verifiedName               String?
+  metaBusinessId             String?
+  metaBusinessName           String?
   businessVerificationStatus String?
-  accountReviewStatus  String?
-  grantedScopes        String?
-  tokenExpiresAt       DateTime?
-  lastValidationAt     DateTime?
-  lastValidationStatus String?
+  accountReviewStatus        String?
+  grantedScopes              String?
+  tokenExpiresAt             DateTime?
+  lastValidationAt           DateTime?
+  lastValidationStatus       String?
 
   // Phase B.2 - Production Multi-Account Engine. All additive/nullable or
   // defaulted so every existing row needs no data migration beyond the
   // one-time isDefault backfill done in this phase's migration.sql.
-  isDefault            Boolean               @default(false)
-  priority             Int                   @default(0)
-  messagingLimit       Int?
-  sendingEnabled       Boolean               @default(true)
-  dailyLimit           Int?
-  currentDailySent     Int                   @default(0)
-  lastDailyReset       DateTime?
-  lastHealthCheck      DateTime?
-  lastWebhookSync      DateTime?
-  webhookSubscribed    Boolean               @default(false)
-  lastTokenRefresh     DateTime?
-  tokenExpiringSoon    Boolean               @default(false)
+  isDefault         Boolean   @default(false)
+  priority          Int       @default(0)
+  messagingLimit    Int?
+  sendingEnabled    Boolean   @default(true)
+  dailyLimit        Int?
+  currentDailySent  Int       @default(0)
+  lastDailyReset    DateTime?
+  lastHealthCheck   DateTime?
+  lastWebhookSync   DateTime?
+  webhookSubscribed Boolean   @default(false)
+  lastTokenRefresh  DateTime?
+  tokenExpiringSoon Boolean   @default(false)
 
   // Phase B.3 - Token Lifecycle Automation. All additive/nullable or
   // defaulted so every existing row needs no data migration - existing rows
@@ -261,14 +261,55 @@ model WhatsappAccount {
   notificationType              String?
   validationLatency             Int?
 
-  campaigns            Campaign[]
+  // Phase B.4 - Webhook Automation & Delivery Reliability. All additive/
+  // nullable or defaulted so every existing row needs no data migration -
+  // an account with no webhook activity yet just reads as "never verified,
+  // never subscribed, UNKNOWN health," which is the correct starting state.
+  // Layered on top of, not replacing, the Phase 5 webhookVerified/webhookLast*
+  // columns above (still written the same way by campaign-webhook.service.ts)
+  // or the Phase B.2 webhookSubscribed/lastWebhookSync columns - every
+  // pre-B.4 consumer of those is unaffected.
+  webhookVerifiedAt              DateTime?
+  webhookLastVerificationAttempt DateTime?
+  webhookVerificationError       String?
+  webhookSubscriptionAttempts    Int                 @default(0)
+  webhookSubscriptionError       String?
+  webhookNextSubscriptionRetryAt DateTime?
+  webhookSignatureFailures       Int                 @default(0)
+  webhookLastSignatureFailureAt  DateTime?
+  webhookHealthStatus            WebhookHealthStatus @default(UNKNOWN)
+  webhookLastHealthCheckAt       DateTime?
+  webhookNotificationType        String?
+  webhookNotificationSentAt      DateTime?
 
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  // Phase B.5 - Production Operations & Multi-Tenant Reliability. Additive/
+  // nullable, same "existing rows need no backfill" shape as every prior
+  // phase's block above. sendingDisabledReason distinguishes WHY
+  // sendingEnabled is currently false (MANUAL / QUALITY_RED /
+  // WEBHOOK_CRITICAL / DAILY_LIMIT) so each engine's automatic recovery only
+  // ever re-enables an account IT disabled, never overriding a human's
+  // manual disable or another engine's reason.
+  sendingDisabledReason String?
+  lastFailoverAt        DateTime?
+  lastFailoverReason    String?
+
+  campaigns     Campaign[]
+  webhookEvents WebhookEvent[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([workspaceId])
   @@index([workspaceId, isDefault])
   @@index([tokenStatus])
+  @@index([webhookHealthStatus])
+}
+
+enum WebhookHealthStatus {
+  HEALTHY
+  WARNING
+  CRITICAL
+  UNKNOWN
 }
 
 enum WhatsappTokenStatus {
@@ -299,6 +340,84 @@ model MetaOAuthState {
 
   @@index([workspaceId])
   @@index([expiresAt])
+}
+
+// ---------------------------------------------------------------------------
+// Phase B.4 - Webhook Automation & Delivery Reliability. Purely additive: no
+// existing table/column is touched. One WebhookEvent row per individual Meta
+// event unit (one status object, one inbound message, one other change) -
+// not one row per HTTP POST - because a single POST can bundle many wamids
+// and the brief's own suggested shape (eventId/wamid/eventType columns) only
+// makes sense at that granularity. `eventId` is a deterministic hash derived
+// from the event's natural identity (wabaId + wamid + status + timestamp, or
+// wabaId + messageId, or a full-unit hash as a last resort for event types
+// with no natural id) - see server/lib/webhook-ids.ts. Its @unique constraint
+// IS the idempotency guarantee: Meta's at-least-once retry of an identical
+// POST produces the identical eventId, so the second insert fails fast
+// (Prisma P2002) instead of double-processing.
+// ---------------------------------------------------------------------------
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  RETRY_SCHEDULED
+  DEAD_LETTERED
+}
+
+model WebhookEvent {
+  id                String             @id @default(uuid())
+  eventId           String             @unique
+  wamid             String?
+  eventType         String
+  workspaceId       String?
+  accountId         String?
+  account           WhatsappAccount?   @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  wabaId            String?
+  phoneNumberId     String?
+  payloadHash       String
+  rawPayload        Json
+  status            WebhookEventStatus @default(RECEIVED)
+  retryCount        Int                @default(0)
+  maxRetries        Int                @default(4)
+  nextRetryAt       DateTime?
+  duplicateAttempts Int                @default(0)
+  errorMessage      String?
+  receivedAt        DateTime           @default(now())
+  processedAt       DateTime?
+  processingTimeMs  Int?
+  deadLetter        WebhookDeadLetter?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+
+  @@index([wamid])
+  @@index([workspaceId])
+  @@index([accountId])
+  @@index([status])
+  @@index([processedAt])
+  @@index([status, nextRetryAt])
+  @@index([receivedAt])
+}
+
+model WebhookDeadLetter {
+  id             String       @id @default(uuid())
+  webhookEventId String       @unique
+  webhookEvent   WebhookEvent @relation(fields: [webhookEventId], references: [id], onDelete: Cascade)
+  workspaceId    String?
+  accountId      String?
+  eventType      String
+  payload        Json
+  reason         String
+  attempts       Int
+  createdAt      DateTime     @default(now())
+  resolvedAt     DateTime?
+  resolvedBy     String?
+  replayCount    Int          @default(0)
+
+  @@index([workspaceId])
+  @@index([accountId])
+  @@index([resolvedAt])
+  @@index([createdAt])
 }
 
 enum BlacklistReason {
@@ -508,22 +627,22 @@ enum CampaignAttachmentType {
 }
 
 model Campaign {
-  id               String              @id @default(uuid())
-  userId           String
-  workspaceId      String
-  name             String
-  description      String?
-  type             CampaignType        @default(OTHER)
-  status           CampaignStatus      @default(DRAFT)
-  messageText      String
-  templateId       String?
-  sendMode         CampaignSendMode?
-  scheduledAt      DateTime?
-  timezone         String?
-  sendStatus       CampaignSendStatus  @default(NOT_STARTED)
-  queueStartedAt   DateTime?
-  queueCompletedAt DateTime?
-  queuePausedAt    DateTime?
+  id                String              @id @default(uuid())
+  userId            String
+  workspaceId       String
+  name              String
+  description       String?
+  type              CampaignType        @default(OTHER)
+  status            CampaignStatus      @default(DRAFT)
+  messageText       String
+  templateId        String?
+  sendMode          CampaignSendMode?
+  scheduledAt       DateTime?
+  timezone          String?
+  sendStatus        CampaignSendStatus  @default(NOT_STARTED)
+  queueStartedAt    DateTime?
+  queueCompletedAt  DateTime?
+  queuePausedAt     DateTime?
   // Phase B.2 - Production Multi-Account Engine. Nullable: existing
   // campaigns keep resolving their sending account via userId (see
   // campaign-queue.service.ts's resolveAccountForCampaign fallback).
@@ -531,11 +650,11 @@ model Campaign {
   // into deleting campaigns - they just revert to that legacy fallback.
   whatsappAccountId String?
   whatsappAccount   WhatsappAccount?    @relation(fields: [whatsappAccountId], references: [id], onDelete: SetNull)
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  recipients       CampaignRecipient[]
-  attachment       CampaignAttachment?
-  queueJobs        CampaignQueueJob[]
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  recipients        CampaignRecipient[]
+  attachment        CampaignAttachment?
+  queueJobs         CampaignQueueJob[]
 
   @@index([userId])
   @@index([workspaceId])
@@ -579,6 +698,13 @@ enum MessageDeliveryStatus {
   DELIVERED
   READ
   FAILED
+  // Phase B.4 - the remaining two statuses Meta's webhook can report.
+  // DELETED: the recipient deleted the message on their device (Meta still
+  // sends this as a terminal status update). Additive value - every existing
+  // read of this enum (progress counters, analytics groupBy) already treats
+  // unrecognized/new values as "not SENT/DELIVERED/READ/FAILED" correctly by
+  // simply not matching those branches, so nothing breaks by adding one.
+  DELETED
 }
 
 model CampaignQueueJob {
@@ -605,14 +731,30 @@ model CampaignQueueJob {
   metaMessageId   String?               @unique
   lockedAt        DateTime?
   lockedBy        String?
-  createdAt       DateTime              @default(now())
-  updatedAt       DateTime              @updatedAt
-  logs            CampaignSendLog[]
+
+  // Phase B.4 - Webhook Automation & Delivery Reliability. All additive/
+  // nullable, populated only as real webhook events arrive for this job's
+  // metaMessageId - a job that never receives a webhook (e.g. sent before
+  // this phase) simply keeps these null, same as it does today.
+  deletedAt          DateTime?
+  conversationId     String?
+  conversationOrigin String?
+  pricingCategory    String?
+  pricingModel       String?
+  lastWarningCode    String?
+  lastWarningMessage String?
+  lastWarningAt      DateTime?
+  lastStatusEventAt  DateTime?
+
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  logs      CampaignSendLog[]
 
   @@index([campaignId])
   @@index([status])
   @@index([campaignId, status])
   @@index([nextAttemptAt])
+  @@index([deliveryStatus, lastStatusEventAt])
 }
 
 model CampaignSendLog {
@@ -764,6 +906,10 @@ model User {
   email            String            @unique
   passwordHash     String
   salt             String?
+  // Profile - additive/nullable, so every existing row reads as "no display
+  // name set yet" (the UI falls back to showing the email) rather than
+  // needing a backfill.
+  name             String?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
   cookiePath       String?
@@ -826,34 +972,34 @@ enum WorkspaceInviteStatus {
 }
 
 model Workspace {
-  id            String                @id @default(uuid())
-  name          String
-  slug          String                @unique
-  logo          String?
-  email         String?
-  phone         String?
-  website       String?
-  address       String?
-  taxId         String?
-  timezone      String                @default("UTC")
-  country       String?
-  language      String                @default("en")
-  currency      String                @default("USD")
-  businessType  String?
-  status        WorkspaceStatus       @default(ACTIVE)
-  plan          WorkspacePlan         @default(FREE)
-  storageUsedBytes  BigInt            @default(0)
-  storageLimitBytes BigInt            @default(5368709120)
-  messageUsed   Int                   @default(0)
-  messageLimit  Int                   @default(1000)
-  contactLimit  Int                   @default(1000)
-  campaignLimit Int                   @default(50)
-  memberLimit   Int                   @default(5)
-  createdBy     String
-  createdAt     DateTime              @default(now())
-  updatedAt     DateTime              @updatedAt
-  members       WorkspaceMember[]
-  invitations   WorkspaceInvitation[]
+  id                String                @id @default(uuid())
+  name              String
+  slug              String                @unique
+  logo              String?
+  email             String?
+  phone             String?
+  website           String?
+  address           String?
+  taxId             String?
+  timezone          String                @default("UTC")
+  country           String?
+  language          String                @default("en")
+  currency          String                @default("USD")
+  businessType      String?
+  status            WorkspaceStatus       @default(ACTIVE)
+  plan              WorkspacePlan         @default(FREE)
+  storageUsedBytes  BigInt                @default(0)
+  storageLimitBytes BigInt                @default(5368709120)
+  messageUsed       Int                   @default(0)
+  messageLimit      Int                   @default(1000)
+  contactLimit      Int                   @default(1000)
+  campaignLimit     Int                   @default(50)
+  memberLimit       Int                   @default(5)
+  createdBy         String
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  members           WorkspaceMember[]
+  invitations       WorkspaceInvitation[]
 
   @@index([slug])
   @@index([status])

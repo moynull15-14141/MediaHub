@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { Smartphone, RefreshCw, Unplug, Clock3, ShieldCheck, AlertTriangle, Facebook, BadgeCheck, ShieldQuestion, Star, PowerOff, Power, PlayCircle, XCircle } from 'lucide-react';
+import { Smartphone, RefreshCw, Unplug, Clock3, ShieldCheck, AlertTriangle, Facebook, BadgeCheck, ShieldQuestion, Star, PowerOff, Power, PlayCircle, XCircle, Webhook, Radio } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/src/components/ui/card';
 import { Button } from '@/src/components/ui/button';
 import { Badge } from '@/src/components/ui/badge';
@@ -52,6 +52,23 @@ interface WhatsappAccount {
   lastSuccessfulValidation: string | null;
   lastFailedValidation: string | null;
   validationFailureReason: string | null;
+  // Phase B.4 - Webhook Automation & Delivery Reliability
+  webhookVerifiedAt: string | null;
+  webhookVerificationError: string | null;
+  webhookSubscriptionError: string | null;
+  webhookHealthStatus: 'HEALTHY' | 'WARNING' | 'CRITICAL' | 'UNKNOWN';
+  webhookLastPingAt: string | null;
+  webhookLastDeliveryAt: string | null;
+  webhookHealth: {
+    lastReceivedAt: string | null;
+    eventsPerHour: number;
+    eventsToday: number;
+    averageProcessingTimeMs: number | null;
+    failureRate: number;
+    signatureFailures24h: number;
+    retryCount: number;
+    deadLetters: number;
+  } | null;
 }
 
 const RECONNECT_NEEDED_STATES = new Set(['RECONNECT_REQUIRED', 'PERMISSION_REVOKED', 'INVALID']);
@@ -101,6 +118,19 @@ const connectionBadge = (health: WhatsappAccount['connectionHealth']) => {
   }
 };
 
+const webhookHealthBadge = (status: WhatsappAccount['webhookHealthStatus']) => {
+  switch (status) {
+    case 'HEALTHY':
+      return <Badge variant="success"><Radio className="h-3.5 w-3.5" /> Webhook healthy</Badge>;
+    case 'WARNING':
+      return <Badge variant="warning"><AlertTriangle className="h-3.5 w-3.5" /> Webhook warning</Badge>;
+    case 'CRITICAL':
+      return <Badge variant="danger"><AlertTriangle className="h-3.5 w-3.5" /> Webhook critical</Badge>;
+    default:
+      return <Badge variant="outline"><Webhook className="h-3.5 w-3.5" /> Webhook unknown</Badge>;
+  }
+};
+
 const sourceBadge = (source: WhatsappAccount['connectionSource']) =>
   source === 'META_EMBEDDED_SIGNUP' ? (
     <Badge variant="outline"><Facebook className="h-3.5 w-3.5" /> Connected via Facebook</Badge>
@@ -125,7 +155,7 @@ export default function WhatsappAccounts() {
 
   const [accounts, setAccounts] = useState<WhatsappAccount[] | undefined>(undefined);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
-  const [busyAction, setBusyAction] = useState<'sync' | 'validate' | 'disconnect' | 'default' | 'sending' | 'resume' | null>(null);
+  const [busyAction, setBusyAction] = useState<'sync' | 'validate' | 'disconnect' | 'default' | 'sending' | 'resume' | 'webhookVerify' | 'webhookReRegister' | null>(null);
 
   const load = async () => {
     try {
@@ -191,6 +221,34 @@ export default function WhatsappAccounts() {
       await load();
     } catch (err: any) {
       push({ title: 'Failed to resume campaigns', description: err.message });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  // Phase B.4 - on-demand self-check against Meta's own subscribed_apps
+  // record, distinct from the passive GET /webhook challenge Meta drives.
+  const handleWebhookVerify = async () => {
+    setBusyAction('webhookVerify');
+    try {
+      const result = await whatsappFetch<{ subscribed: boolean }>(token, '/account/webhook/verify', { method: 'POST' });
+      push({ title: result.subscribed ? 'Webhook is subscribed' : 'Webhook is not subscribed', description: result.subscribed ? 'Meta confirms this app is receiving webhook events for this account.' : 'Try Re-register, or reconnect the account.' });
+      await load();
+    } catch (err: any) {
+      push({ title: 'Webhook verification failed', description: err.message });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleWebhookReRegister = async () => {
+    setBusyAction('webhookReRegister');
+    try {
+      const result = await whatsappFetch<{ subscribed: boolean; error?: string }>(token, '/account/webhook/re-register', { method: 'POST' });
+      push({ title: result.subscribed ? 'Webhook re-registered' : 'Webhook registration failed', description: result.subscribed ? undefined : result.error });
+      await load();
+    } catch (err: any) {
+      push({ title: 'Failed to re-register webhook', description: err.message });
     } finally {
       setBusyAction(null);
     }
@@ -301,6 +359,7 @@ export default function WhatsappAccounts() {
                         {connectionBadge(account.connectionHealth)}
                         {tokenStatusBadge(account.tokenStatus)}
                         {healthBadge(account.healthStatus)}
+                        {webhookHealthBadge(account.webhookHealthStatus)}
                         {sourceBadge(account.connectionSource)}
                         {!account.sendingEnabled && (
                           <Badge variant="danger"><PowerOff className="h-3.5 w-3.5" /> Sending disabled</Badge>
@@ -350,6 +409,25 @@ export default function WhatsappAccounts() {
                       <Field label="Validation latency" value={account.validationLatency != null ? `${account.validationLatency}ms` : '—'} />
                       <Field label="Consecutive failures" value={account.consecutiveValidationFailures} />
                     </div>
+                    <div className="border-t border-[var(--border)] pt-4">
+                      <p className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--text-secondary)]">Webhook health</p>
+                      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <Field label="Webhook verified" value={account.webhookVerified ? 'Yes' : 'No'} />
+                        <Field label="Webhook status" value={account.webhookHealthStatus} />
+                        <Field label="Last event" value={account.webhookLastPingAt ? new Date(account.webhookLastPingAt).toLocaleString() : 'never'} />
+                        <Field label="Last delivery" value={account.webhookLastDeliveryAt ? new Date(account.webhookLastDeliveryAt).toLocaleString() : 'never'} />
+                        <Field label="Events today" value={account.webhookHealth?.eventsToday ?? 0} />
+                        <Field label="Avg processing time" value={account.webhookHealth?.averageProcessingTimeMs != null ? `${account.webhookHealth.averageProcessingTimeMs}ms` : '—'} />
+                        <Field label="Retries" value={account.webhookHealth?.retryCount ?? 0} />
+                        <Field label="Dead letters" value={account.webhookHealth?.deadLetters ?? 0} />
+                        <Field label="Signature errors (24h)" value={account.webhookHealth?.signatureFailures24h ?? 0} />
+                      </div>
+                      {(account.webhookVerificationError || account.webhookSubscriptionError) && (
+                        <div className="mt-3 rounded-2xl bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                          {account.webhookSubscriptionError || account.webhookVerificationError}
+                        </div>
+                      )}
+                    </div>
                     {isMine && canManage && (
                       <div className="flex flex-wrap gap-3 pt-2">
                         <Button variant="outline" onClick={handleSync} disabled={busyAction !== null}>
@@ -357,6 +435,12 @@ export default function WhatsappAccounts() {
                         </Button>
                         <Button variant="outline" onClick={handleValidate} disabled={busyAction !== null}>
                           <ShieldCheck className="mr-2 h-4 w-4" /> Validate
+                        </Button>
+                        <Button variant="outline" onClick={handleWebhookVerify} disabled={busyAction !== null}>
+                          <Webhook className={busyAction === 'webhookVerify' ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} /> Verify webhook
+                        </Button>
+                        <Button variant="outline" onClick={handleWebhookReRegister} disabled={busyAction !== null}>
+                          <Radio className={busyAction === 'webhookReRegister' ? 'mr-2 h-4 w-4 animate-spin' : 'mr-2 h-4 w-4'} /> Re-register webhook
                         </Button>
                         <Button variant="outline" onClick={handleConnect} disabled={connecting}>
                           <Facebook className="mr-2 h-4 w-4" /> Reconnect

@@ -2,6 +2,7 @@ import fs from 'fs';
 import { prisma } from '../lib/prisma';
 import { getPdfJobDir } from '../lib/pdf-paths';
 import { deleteFromR2 } from '../lib/r2';
+import { recordSchedulerTick } from '../lib/scheduler-registry';
 
 const STALE_PROCESSING_MINUTES = Number(process.env.PDF_STALE_MINUTES) || 30;
 const ABANDONED_QUEUED_HOURS = Number(process.env.PDF_ABANDONED_HOURS) || 6;
@@ -63,13 +64,16 @@ const sweepFailed = async () => {
 };
 
 const runSweep = async () => {
+  const startedAt = Date.now();
   try {
     await sweepExpiredCompleted();
     await sweepStaleProcessing();
     await sweepAbandonedUploads();
     await sweepFailed();
+    recordSchedulerTick('pdf-cleanup', Date.now() - startedAt);
   } catch (err) {
     console.error('PDF cleanup sweep failed:', err);
+    recordSchedulerTick('pdf-cleanup', Date.now() - startedAt, err instanceof Error ? err.message : String(err));
   }
 };
 

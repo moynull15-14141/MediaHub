@@ -15,6 +15,9 @@ import { startPdfCleanupScheduler } from './server/services/pdf-cleanup.service'
 import { startCampaignQueueWorker, stopCampaignQueueWorker } from './server/services/campaign-queue-worker.service';
 import { startReportScheduler, stopReportScheduler } from './server/services/report-scheduler.service';
 import { startWhatsappHealthScheduler, stopWhatsappHealthScheduler } from './server/services/whatsapp-health-scheduler.service';
+import { startWebhookEventWorker, stopWebhookEventWorker } from './server/services/webhook-event-worker.service';
+import { startWebhookReconciliationScheduler, stopWebhookReconciliationScheduler } from './server/services/webhook-reconciliation.service';
+import { startWebhookEventCleanupScheduler } from './server/services/webhook-event-cleanup.service';
 import { webhookVerifyHandler, webhookReceiveHandler } from './server/controllers/campaign-webhook.controller';
 import { seedPermissions } from './server/services/permission.service';
 import { config } from './server/lib/config';
@@ -102,6 +105,9 @@ async function startServer() {
   startCampaignQueueWorker();
   startReportScheduler();
   startWhatsappHealthScheduler();
+  startWebhookEventWorker();
+  startWebhookReconciliationScheduler();
+  startWebhookEventCleanupScheduler();
   await seedPermissions();
   await validateStartupDependencies();
 
@@ -140,6 +146,8 @@ async function startServer() {
     await stopCampaignQueueWorker();
     await stopReportScheduler();
     await stopWhatsappHealthScheduler();
+    await stopWebhookEventWorker();
+    await stopWebhookReconciliationScheduler();
     httpServer.close(() => process.exit(0));
   };
   process.on('SIGTERM', () => void shutdown('SIGTERM'));

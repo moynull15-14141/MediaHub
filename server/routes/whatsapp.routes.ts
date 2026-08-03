@@ -30,6 +30,24 @@ import {
 } from '../controllers/whatsapp-account.controller';
 import { dashboardHandler } from '../controllers/whatsapp-dashboard.controller';
 import {
+  webhookStatusHandler,
+  webhookEventsHandler,
+  webhookDeadLettersHandler,
+  webhookReplayHandler,
+  webhookVerifyNowHandler,
+  webhookReRegisterHandler,
+} from '../controllers/webhook-automation.controller';
+import {
+  accountOperationsHandler,
+  accountLimitsHandler,
+  accountRoutingHandler,
+  accountQualityHandler,
+  dashboardOperationsHandler,
+  accountFailoverHandler,
+  accountRebalanceHandler,
+  accountResetDailyLimitHandler,
+} from '../controllers/operations.controller';
+import {
   metaConfigHandler,
   metaCallbackHandler,
   metaSyncHandler,
@@ -180,6 +198,32 @@ router.get('/account/audit-logs', requirePermission('settings:read'), auditLogsH
 router.get('/account/token-status', requirePermission('settings:read'), tokenStatusHandler);
 router.post('/account/resume', requirePermission('settings:write'), resumeAccountHandler);
 router.get('/account/health-history', requirePermission('settings:read'), healthHistoryHandler);
+
+// Phase B.4 - Webhook Automation & Delivery Reliability. Self-service (the
+// caller's own account), same settings:read/settings:write gating as every
+// other self-service route above. Distinct from the pre-existing, unauthenticated
+// /api/whatsapp/webhook GET+POST (Meta's own handshake/delivery callbacks,
+// registered directly on the Express app in server.ts) - these are the
+// authenticated dashboard-facing endpoints for status/history/replay/re-verify.
+router.get('/account/webhook/status', requirePermission('settings:read'), webhookStatusHandler);
+router.get('/account/webhook/events', requirePermission('settings:read'), webhookEventsHandler);
+router.get('/account/webhook/dead-letters', requirePermission('settings:read'), webhookDeadLettersHandler);
+router.post('/account/webhook/replay', requirePermission('settings:write'), webhookReplayHandler);
+router.post('/account/webhook/verify', requirePermission('settings:read'), webhookVerifyNowHandler);
+router.post('/account/webhook/re-register', requirePermission('settings:write'), webhookReRegisterHandler);
+
+// Phase B.5 - Production Operations & Multi-Tenant Reliability. Self-service
+// reads (settings:read) and self-service actions (settings:write), same
+// convention as every route above; /dashboard/operations mirrors the
+// existing /dashboard route's analytics:read gate.
+router.get('/account/operations', requirePermission('settings:read'), accountOperationsHandler);
+router.get('/account/limits', requirePermission('settings:read'), accountLimitsHandler);
+router.get('/account/routing', requirePermission('settings:read'), accountRoutingHandler);
+router.get('/account/quality', requirePermission('settings:read'), accountQualityHandler);
+router.post('/account/failover', requirePermission('settings:write'), accountFailoverHandler);
+router.post('/account/rebalance', requirePermission('settings:write'), accountRebalanceHandler);
+router.post('/account/reset-daily-limit', requirePermission('settings:write'), accountResetDailyLimitHandler);
+router.get('/dashboard/operations', requirePermission('analytics:read'), dashboardOperationsHandler);
 router.post('/account/logo', requirePermission('settings:write'), logoUploadMiddleware, handleLogoUploadError, logoUploadHandler);
 router.delete('/account/logo', requirePermission('settings:write'), logoRemoveHandler);
 router.post(

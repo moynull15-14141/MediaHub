@@ -1,8 +1,14 @@
 import { prisma } from '../lib/prisma';
 import { validateAccount, requiresAutoPause, type TokenStatus } from './meta-validation.service';
-import { pauseCampaignsForAccountFailover, resumeAutoPausedCampaignsForAccount } from './campaign-queue.service';
+import { resumeAutoPausedCampaignsForAccount } from './campaign-queue.service';
 import { logAudit } from './whatsapp-audit.service';
 import { tokenLogger } from '../lib/logger';
+import { retryPendingWebhookSubscriptions } from './webhook-registration.service';
+import { checkAndAlertWebhookHealth } from './webhook-health.service';
+import { failoverAccount } from './account-failover.service';
+import { syncAndMonitorQuality, monitorWebhookCriticalDisable } from './account-quality-monitor.service';
+import { enforceDailyLimit } from './daily-limit-engine.service';
+import { recordSchedulerTick } from '../lib/scheduler-registry';
 
 // Mirrors report-scheduler.service.ts's polling convention exactly (bare
 // setInterval + re-entrancy guard) rather than introducing node-cron or any
@@ -42,10 +48,13 @@ const validateOneAccount = async (account: { id: string; userId: string; workspa
     if (previousStatus === nextStatus) return;
 
     if (!requiresAutoPause(previousStatus) && requiresAutoPause(nextStatus)) {
+      // Phase B.5 - Failover Engine: try to move this account's in-flight
+      // campaigns to a healthy sibling in the same workspace first; falls
+      // back to the original pause-only behavior when none is available.
       const reason = `Token status changed ${previousStatus} -> ${nextStatus}: ${result.validation.message}`;
-      const pausedCount = await pauseCampaignsForAccountFailover(account.id, reason);
-      await logAudit(account.userId, 'AUTO_PAUSE', `${previousStatus} -> ${nextStatus}, paused ${pausedCount} campaign(s)`);
-      tokenLogger.info('AUTO_PAUSE', { accountId: account.id, workspaceId: account.workspaceId, previousStatus, nextStatus, pausedCount });
+      const { reassigned, paused } = await failoverAccount(account.id, reason, account.userId);
+      await logAudit(account.userId, 'AUTO_PAUSE', `${previousStatus} -> ${nextStatus}, reassigned ${reassigned}, paused ${paused} campaign(s)`);
+      tokenLogger.info('AUTO_PAUSE', { accountId: account.id, workspaceId: account.workspaceId, previousStatus, nextStatus, reassigned, paused });
     } else if (requiresAutoPause(previousStatus) && nextStatus === 'CONNECTED') {
       const resumedCount = await resumeAutoPausedCampaignsForAccount(account.id);
       await logAudit(account.userId, 'AUTO_RESUME', `${previousStatus} -> CONNECTED, resumed ${resumedCount} campaign(s)`);
@@ -57,24 +66,57 @@ const validateOneAccount = async (account: { id: string; userId: string; workspa
 };
 
 const runHealthChecks = async (): Promise<void> => {
-  const accounts = await prisma.whatsappAccount.findMany({
-    where: { status: 'CONNECTED' },
-    select: { id: true, userId: true, workspaceId: true, tokenStatus: true },
-  });
+  const accounts = await prisma.whatsappAccount.findMany({ where: { status: 'CONNECTED' } });
 
   for (const batch of chunk(accounts, VALIDATION_CONCURRENCY)) {
     await Promise.allSettled(batch.map(validateOneAccount));
+
+    // Phase B.5 - Phone Quality Monitor: proactive quality/tier resync +
+    // RED-quality auto-disable/recover, same per-batch concurrency bound.
+    await Promise.allSettled(
+      batch.map((account) =>
+        syncAndMonitorQuality(account).catch((err) => console.error(`Quality monitor failed for account ${account.id}:`, err)),
+      ),
+    );
+
+    // Phase B.4 - webhook health classification + staged alerting, extended
+    // in Phase B.5 to also drive the CRITICAL-webhook auto-disable/recover
+    // (monitorWebhookCriticalDisable needs THIS tick's freshly computed
+    // level, not a stale read, so it's chained directly off
+    // checkAndAlertWebhookHealth's return value rather than a second pass).
+    await Promise.allSettled(
+      batch.map(async (account) => {
+        try {
+          const webhookHealthStatus = await checkAndAlertWebhookHealth(account);
+          await monitorWebhookCriticalDisable(account, webhookHealthStatus);
+        } catch (err) {
+          console.error(`Webhook health check failed for account ${account.id}:`, err);
+        }
+      }),
+    );
+
+    // Phase B.5 - Daily Limit Engine: UTC rollover + pause/resume/audit.
+    await Promise.allSettled(
+      batch.map((account) => enforceDailyLimit(account).catch((err) => console.error(`Daily limit enforcement failed for account ${account.id}:`, err))),
+    );
   }
+
+  // Phase B.4 - background retry for accounts whose initial 3-attempt
+  // webhook subscription burst failed (see webhook-registration.service.ts).
+  await retryPendingWebhookSubscriptions().catch((err) => console.error('Webhook subscription retry sweep failed:', err));
 };
 
 const tick = async (): Promise<void> => {
   if (tickRunning) return;
   tickRunning = true;
+  const startedAt = Date.now();
   try {
     await runHealthChecks();
     lastTickAt = new Date();
+    recordSchedulerTick('whatsapp-health-scheduler', Date.now() - startedAt);
   } catch (err) {
     console.error('WhatsApp health scheduler tick error:', err);
+    recordSchedulerTick('whatsapp-health-scheduler', Date.now() - startedAt, err instanceof Error ? err.message : String(err));
   } finally {
     tickRunning = false;
   }

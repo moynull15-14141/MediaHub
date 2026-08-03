@@ -5,6 +5,9 @@ import { decryptToken } from '../lib/whatsapp-crypto';
 import { getPresignedViewUrl } from '../lib/r2';
 import { sendWhatsappMessage } from '../lib/whatsapp-sender';
 import { emitCampaignProgress } from '../lib/campaign-events';
+import { canSendForAccount, recordSend, recordRateLimitHit, recordSendSuccess } from '../lib/rate-limit-manager';
+import { isWithinDailyLimit } from './daily-limit-engine.service';
+import { recordSchedulerTick } from '../lib/scheduler-registry';
 
 // Dedicated Worker Engine: a single polling loop (mirrors the existing
 // startXCleanupScheduler() convention in server/services/*-cleanup.service.ts)
@@ -67,64 +70,22 @@ export const isWithinWorkingHours = (account: Pick<WhatsappAccount, 'workingHour
 };
 
 // --- Rate Limiter: sliding-window messages/minute + randomized jitter delay
-// between consecutive sends, per WhatsApp account (per phone number). ---
-interface RateState {
-  sentTimestamps: number[];
-  nextAllowedAt: number;
-}
-const rateState = new Map<string, RateState>();
+// between consecutive sends, per WhatsApp account (per phone number).
+// Phase B.5 - the limiter state/logic itself now lives in
+// lib/rate-limit-manager.ts (canSendForAccount/recordSend, imported above),
+// extended there with an adaptive backoff multiplier on real Meta 429s -
+// this file just calls it and reports outcomes back via
+// recordRateLimitHit/recordSendSuccess in processJob below. ---
 
-const getRateState = (accountId: string): RateState => {
-  let state = rateState.get(accountId);
-  if (!state) {
-    state = { sentTimestamps: [], nextAllowedAt: 0 };
-    rateState.set(accountId, state);
-  }
-  return state;
-};
-
-const canSendForAccount = (accountId: string, account: Pick<WhatsappAccount, 'rateLimitPerMinute'>): boolean => {
-  const state = getRateState(accountId);
-  const now = Date.now();
-  if (now < state.nextAllowedAt) return false;
-  state.sentTimestamps = state.sentTimestamps.filter((t) => now - t < 60_000);
-  return state.sentTimestamps.length < account.rateLimitPerMinute;
-};
-
-const recordSend = (accountId: string, account: Pick<WhatsappAccount, 'minDelaySeconds' | 'maxDelaySeconds'>): void => {
-  const state = getRateState(accountId);
-  const now = Date.now();
-  state.sentTimestamps.push(now);
-  const min = Math.max(1, account.minDelaySeconds);
-  const max = Math.max(min, account.maxDelaySeconds);
-  const jitterSeconds = min + Math.random() * (max - min); // random, not fixed
-  state.nextAllowedAt = now + jitterSeconds * 1000;
-
-  // Fire-and-forget daily counter increment - mirrors processJob's own
-  // non-blocking dispatch pattern, never awaited on the hot tick path.
+// Fire-and-forget daily counter increment - mirrors processJob's own
+// non-blocking dispatch pattern, never awaited on the hot tick path. The
+// counter's RESET/enforcement (UTC rollover, pause-on-threshold) is Phase
+// B.5's daily-limit-engine.service.ts's job now (30-min health-scheduler
+// cadence) - this only increments.
+const incrementDailySent = (accountId: string): void => {
   void prisma.whatsappAccount
     .update({ where: { id: accountId }, data: { currentDailySent: { increment: 1 } } })
     .catch((err) => console.error(`Failed to increment currentDailySent for account ${accountId}:`, err));
-};
-
-const isSameUtcDay = (a: Date, b: Date): boolean =>
-  a.getUTCFullYear() === b.getUTCFullYear() && a.getUTCMonth() === b.getUTCMonth() && a.getUTCDate() === b.getUTCDate();
-
-// Rolls the daily counter over to 0 once UTC-midnight has passed since the
-// account's last reset, then reports whether the account is still under its
-// configured cap. `dailyLimit === null` means "no cap" (always allowed).
-const isUnderDailyLimit = async (account: WhatsappAccount): Promise<boolean> => {
-  if (account.dailyLimit == null) return true;
-  const now = new Date();
-  if (!account.lastDailyReset || !isSameUtcDay(account.lastDailyReset, now)) {
-    account.currentDailySent = 0;
-    account.lastDailyReset = now;
-    await prisma.whatsappAccount.update({
-      where: { id: account.id },
-      data: { currentDailySent: 0, lastDailyReset: now },
-    });
-  }
-  return account.currentDailySent < account.dailyLimit;
 };
 
 // --- Crash / restart recovery ---
@@ -220,6 +181,16 @@ const processJob = async (
   const durationMs = Date.now() - start;
   const willRetry = !result.success && result.retryable && attemptNumber < job.maxAttempts;
   const logStatus = result.success ? 'SENT' : willRetry ? 'RETRY' : 'FAILED';
+
+  // Phase B.5 - Rate Limit Manager feedback loop: a real Meta 429 grows the
+  // adaptive backoff for this account; any successful send decays it back
+  // down. Every other error category is neither - it neither means "we're
+  // sending too fast" nor "we're clear to speed back up."
+  if (result.success) {
+    recordSendSuccess(account.id);
+  } else if (result.errorCategory === 'RATE_LIMIT') {
+    recordRateLimitHit(account.id);
+  }
 
   await prisma.campaignSendLog.create({
     data: {
@@ -319,7 +290,7 @@ const dispatchNextBatch = async (): Promise<void> => {
     if (!account.sendingEnabled) continue;
     if (!isWithinWorkingHours(account)) continue;
     if (!canSendForAccount(account.id, account)) continue;
-    if (!(await isUnderDailyLimit(account))) continue;
+    if (!isWithinDailyLimit(account)) continue;
 
     // This account's own bucket already contains exactly the campaigns
     // resolved to it this tick (explicit FK match or legacy fallback), so the
@@ -338,8 +309,37 @@ const dispatchNextBatch = async (): Promise<void> => {
         continue;
       }
 
+      // Phase B.6 - a corrupted/malformed stored token (bad migration, manual
+      // DB edit, key rotation without re-encrypting existing rows, ...) must
+      // never abort the whole tick - decryptToken throws synchronously, and
+      // this call previously sat outside any try/catch, so one broken
+      // account's exception propagated all the way out of dispatchNextBatch
+      // and killed every other account's dispatch for that tick (live-
+      // reproduced during audit: "Invalid authentication tag length" from a
+      // malformed ciphertext aborted the tick and left the claimed job stuck
+      // in SENDING). Isolate the failure to this one job/account instead.
+      let accessToken: string;
+      try {
+        accessToken = decryptToken(account.accessTokenEncrypted);
+      } catch (err) {
+        console.error(`Failed to decrypt access token for account ${account.id}:`, err);
+        await prisma.campaignQueueJob.update({
+          where: { id: claimed.id },
+          data: {
+            status: 'FAILED',
+            failedAt: new Date(),
+            attempts: claimed.attempts + 1,
+            errorCode: 'UNKNOWN',
+            errorMessage: 'Stored access token could not be read',
+          },
+        });
+        await maybeCompleteCampaign(campaign.id);
+        emitCampaignProgress(campaign.id);
+        break; // this account is broken for the rest of this tick - move on to the next account, not abort the tick
+      }
+
       recordSend(account.id, account);
-      const accessToken = decryptToken(account.accessTokenEncrypted);
+      incrementDailySent(account.id);
       let mediaLink: string | undefined;
       if (campaign.attachment) {
         mediaLink = await getPresignedViewUrl(campaign.attachment.storageKey).catch(() => undefined);
@@ -353,13 +353,16 @@ const dispatchNextBatch = async (): Promise<void> => {
 const tick = async (): Promise<void> => {
   if (tickRunning) return;
   tickRunning = true;
+  const startedAt = Date.now();
   try {
     await recoverStaleLocks();
     await promoteScheduledCampaigns();
     await dispatchNextBatch();
     lastTickAt = Date.now();
+    recordSchedulerTick('campaign-queue-worker', Date.now() - startedAt);
   } catch (err) {
     console.error('Campaign queue worker tick error:', err);
+    recordSchedulerTick('campaign-queue-worker', Date.now() - startedAt, err instanceof Error ? err.message : String(err));
   } finally {
     tickRunning = false;
   }

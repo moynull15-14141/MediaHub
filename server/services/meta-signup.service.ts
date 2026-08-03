@@ -1,12 +1,13 @@
 import { prisma } from '../lib/prisma';
 import { encryptToken } from '../lib/whatsapp-crypto';
-import { WhatsappGraphError, subscribeToWebhooks } from '../lib/whatsapp-graph';
+import { WhatsappGraphError } from '../lib/whatsapp-graph';
 import { toPublicAccount, qualityToHealth } from './whatsapp-account.service';
 import { consumeOAuthState, exchangeAuthorizationCode, MetaOAuthError } from './meta-oauth.service';
 import { fetchLiveAccountData } from './meta-sync.service';
 import { logAudit } from './whatsapp-audit.service';
 import { requiresAutoPause } from './meta-validation.service';
 import { resumeAutoPausedCampaignsForAccount } from './campaign-queue.service';
+import { registerAccountWebhook } from './webhook-registration.service';
 
 export class MetaSignupError extends Error {
   constructor(message: string, public status: number) {
@@ -138,33 +139,14 @@ export const completeEmbeddedSignup = async (workspaceId: string, userId: string
       await logAudit(userId, 'TOKEN_RECONNECTED', `via embedded signup, was ${existing.tokenStatus}, resumed ${resumedCount} campaign(s)`);
     }
 
-    // Best-effort webhook subscription (3 attempts, 1s/2s backoff). Never
-    // blocks or fails the signup itself - a broken subscribe call shouldn't
-    // undo an otherwise-successful connect; it's recorded in the audit log
-    // instead so "nothing silently fails" without gating the user's flow.
-    let webhookSubscribed = false;
-    for (let attempt = 1; attempt <= 3 && !webhookSubscribed; attempt++) {
-      try {
-        await subscribeToWebhooks(input.wabaId, accessToken);
-        webhookSubscribed = true;
-      } catch (subscribeErr) {
-        if (attempt === 3) {
-          await logAudit(
-            userId,
-            'ACCOUNT_WEBHOOK_SUBSCRIBE_FAILED',
-            subscribeErr instanceof Error ? subscribeErr.message : 'Unknown error',
-          );
-        } else {
-          await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
-        }
-      }
-    }
-    if (webhookSubscribed) {
-      const withWebhook = await prisma.whatsappAccount.update({
-        where: { id: account.id },
-        data: { webhookSubscribed: true, lastWebhookSync: new Date() },
-      });
-      await logAudit(userId, 'ACCOUNT_WEBHOOK_SUBSCRIBED', input.wabaId);
+    // Phase B.4 - webhook auto-registration (3 attempts, exponential backoff,
+    // never blocks or fails the signup itself). Failure - including
+    // exhausting the retry ladder - is recorded on the account row and
+    // picked up later by the background sweep (webhook-registration.service's
+    // retryPendingWebhookSubscriptions), not retried further here.
+    const result = await registerAccountWebhook(account.id, input.wabaId, accessToken, userId);
+    if (result.subscribed) {
+      const withWebhook = await prisma.whatsappAccount.findUniqueOrThrow({ where: { id: account.id } });
       return toPublicAccount(withWebhook);
     }
 
