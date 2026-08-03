@@ -21,6 +21,12 @@ import {
   handleDefaultAttachmentUploadError,
   defaultAttachmentUploadHandler,
   defaultAttachmentRemoveHandler,
+  setDefaultAccountHandler,
+  setSendingEnabledHandler,
+  setPriorityHandler,
+  tokenStatusHandler,
+  resumeAccountHandler,
+  healthHistoryHandler,
 } from '../controllers/whatsapp-account.controller';
 import { dashboardHandler } from '../controllers/whatsapp-dashboard.controller';
 import {
@@ -165,6 +171,15 @@ router.get('/account/webhook-monitor', requirePermission('settings:read'), webho
 router.get('/account/api-health', requirePermission('settings:read'), apiHealthHandler);
 router.get('/account/system-health', requirePermission('settings:read'), systemHealthHandler);
 router.get('/account/audit-logs', requirePermission('settings:read'), auditLogsHandler);
+
+// Phase B.3 - Token Lifecycle Automation. Self-service (caller's own
+// account), same settings:read/settings:write gating as every other
+// self-service route above. POST /account/validate and POST /account/reconnect
+// are intentionally NOT duplicated here - they already exist as
+// /account/meta/validate and /account/meta/callback respectively.
+router.get('/account/token-status', requirePermission('settings:read'), tokenStatusHandler);
+router.post('/account/resume', requirePermission('settings:write'), resumeAccountHandler);
+router.get('/account/health-history', requirePermission('settings:read'), healthHistoryHandler);
 router.post('/account/logo', requirePermission('settings:write'), logoUploadMiddleware, handleLogoUploadError, logoUploadHandler);
 router.delete('/account/logo', requirePermission('settings:write'), logoRemoveHandler);
 router.post(
@@ -184,6 +199,21 @@ router.post('/account/meta/callback', requirePermission('settings:write'), metaC
 router.post('/account/meta/sync', requirePermission('settings:write'), metaSyncHandler);
 router.post('/account/meta/validate', requirePermission('settings:read'), metaValidateHandler);
 router.get('/account/meta/workspace-accounts', requirePermission('settings:read'), listWorkspaceAccountsHandler);
+
+// Phase B.2 - workspace-wide account management. Distinct from every route
+// above (which always act on the CALLER's own account via settings:*) -
+// these act on ANY account in the workspace by id, so they're gated by
+// requireWorkspaceRole('ADMIN') (Owner/Admin manage accounts, per the brief),
+// the same mechanism already used for the analogous /members/* routes below.
+router.patch('/account/:accountId/default', requireWorkspaceRole('ADMIN'), setDefaultAccountHandler);
+router.patch('/account/:accountId/sending', requireWorkspaceRole('ADMIN'), setSendingEnabledHandler);
+router.patch('/account/:accountId/priority', requireWorkspaceRole('ADMIN'), setPriorityHandler);
+
+// Campaign-scoped read of the workspace's account list, gated by
+// campaigns:write rather than settings:read - Operators/Managers can build a
+// campaign and choose a sending account without needing broader account
+// settings access. Same handler/data as the existing route above.
+router.get('/campaigns/sending-accounts', requirePermission('campaigns:write'), listWorkspaceAccountsHandler);
 
 router.get('/dashboard', requirePermission('analytics:read'), dashboardHandler);
 

@@ -13,10 +13,25 @@ export class CampaignQueueError extends Error {
 const DEFAULT_BATCH_SIZE = 1000;
 const CLAIMABLE_STATUSES: ('PENDING' | 'WAITING' | 'RETRY')[] = ['PENDING', 'WAITING', 'RETRY'];
 
-const requireConnectedAccount = async (userId: string) => {
-  const account = await prisma.whatsappAccount.findUnique({ where: { userId } });
+// Single place that decides "which account does this campaign send from" -
+// used by both the start-gate and job generation so they can never disagree.
+// Prefers the campaign's explicitly assigned account (Phase B.2); falls back
+// to the campaign owner's own account for campaigns created before that
+// field existed, so nothing pre-existing changes behavior.
+export const resolveAccountForCampaign = async (campaign: { whatsappAccountId: string | null; userId: string }) => {
+  if (campaign.whatsappAccountId) {
+    return prisma.whatsappAccount.findUnique({ where: { id: campaign.whatsappAccountId } });
+  }
+  return prisma.whatsappAccount.findUnique({ where: { userId: campaign.userId } });
+};
+
+const requireConnectedAccount = async (campaign: { whatsappAccountId: string | null; userId: string }) => {
+  const account = await resolveAccountForCampaign(campaign);
   if (!account || account.status !== 'CONNECTED') {
     throw new CampaignQueueError('Connect a WhatsApp account before sending campaigns', 400);
+  }
+  if (!account.sendingEnabled) {
+    throw new CampaignQueueError('The selected WhatsApp account has sending disabled', 400);
   }
   return account;
 };
@@ -45,7 +60,7 @@ export const generateQueueJobs = async (campaignId: string): Promise<number> => 
   });
   if (recipients.length === 0) throw new CampaignQueueError('Campaign has no recipients', 400);
 
-  const account = await prisma.whatsappAccount.findUnique({ where: { userId: campaign.userId } });
+  const account = await resolveAccountForCampaign(campaign);
   const maxAttempts = account?.maxRetries ?? 3;
   const batchSize = account?.batchSize ?? DEFAULT_BATCH_SIZE;
 
@@ -80,8 +95,8 @@ export const generateQueueJobs = async (campaignId: string): Promise<number> => 
 };
 
 export const startCampaignNow = async (workspaceId: string, userId: string, campaignId: string) => {
-  await requireReadyCampaign(workspaceId, campaignId);
-  await requireConnectedAccount(userId);
+  const campaign = await requireReadyCampaign(workspaceId, campaignId);
+  await requireConnectedAccount(campaign);
   await generateQueueJobs(campaignId);
   const updated = await prisma.campaign.update({
     where: { id: campaignId },
@@ -93,8 +108,8 @@ export const startCampaignNow = async (workspaceId: string, userId: string, camp
 };
 
 export const scheduleCampaign = async (workspaceId: string, userId: string, campaignId: string, body: any) => {
-  await requireReadyCampaign(workspaceId, campaignId);
-  await requireConnectedAccount(userId);
+  const campaign = await requireReadyCampaign(workspaceId, campaignId);
+  await requireConnectedAccount(campaign);
 
   const scheduledAt = new Date(body?.scheduledAt);
   if (Number.isNaN(scheduledAt.getTime()) || scheduledAt.getTime() <= Date.now()) {
@@ -124,6 +139,68 @@ export const pauseCampaign = async (workspaceId: string, userId: string, campaig
   emitCampaignProgress(campaignId);
   await logAudit(userId, 'CAMPAIGN_PAUSED', campaignId);
   return updated;
+};
+
+// Auto-failover: called by the health-check scheduler when an account's
+// connection health degrades away from CONNECTED. Pauses every campaign
+// currently SENDING on that account (explicit whatsappAccountId match, or a
+// legacy null-FK campaign owned by that account's user) so a broken account
+// never silently leaves a campaign stuck - the pause is visible in the UI
+// exactly like a manual pause, distinguished in the audit log by action name.
+export const pauseCampaignsForAccountFailover = async (accountId: string, reason: string): Promise<number> => {
+  const account = await prisma.whatsappAccount.findUnique({ where: { id: accountId }, select: { userId: true } });
+  const affected = await prisma.campaign.findMany({
+    where: {
+      sendStatus: 'SENDING',
+      OR: [{ whatsappAccountId: accountId }, ...(account ? [{ whatsappAccountId: null, userId: account.userId }] : [])],
+    },
+    select: { id: true },
+  });
+  if (affected.length === 0) return 0;
+
+  await prisma.campaign.updateMany({
+    where: { id: { in: affected.map((c) => c.id) } },
+    data: { sendStatus: 'PAUSED', queuePausedAt: new Date() },
+  });
+  for (const campaign of affected) {
+    emitCampaignProgress(campaign.id);
+    await logAudit(account?.userId ?? '', 'CAMPAIGN_AUTO_PAUSED', `${campaign.id}: ${reason}`);
+  }
+  return affected.length;
+};
+
+// Phase B.3 - auto-resume. Only resumes campaigns whose MOST RECENT pause was
+// automatic (CAMPAIGN_AUTO_PAUSED), never one a human paused on purpose
+// (CAMPAIGN_PAUSED) - determined from the existing audit trail rather than a
+// new Campaign column, since pauseCampaign/pauseCampaignsForAccountFailover
+// already audit every pause with the campaignId identifiable in `detail`
+// (CAMPAIGN_PAUSED's detail IS the campaignId; CAMPAIGN_AUTO_PAUSED's detail
+// starts with "<campaignId>: <reason>" - both match a startsWith check).
+export const resumeAutoPausedCampaignsForAccount = async (accountId: string): Promise<number> => {
+  const account = await prisma.whatsappAccount.findUnique({ where: { id: accountId }, select: { userId: true } });
+  const paused = await prisma.campaign.findMany({
+    where: {
+      sendStatus: 'PAUSED',
+      OR: [{ whatsappAccountId: accountId }, ...(account ? [{ whatsappAccountId: null, userId: account.userId }] : [])],
+    },
+    select: { id: true },
+  });
+  if (paused.length === 0) return 0;
+
+  let resumedCount = 0;
+  for (const campaign of paused) {
+    const lastPauseEvent = await prisma.accountAuditLog.findFirst({
+      where: { action: { in: ['CAMPAIGN_PAUSED', 'CAMPAIGN_AUTO_PAUSED'] }, detail: { startsWith: campaign.id } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (lastPauseEvent?.action !== 'CAMPAIGN_AUTO_PAUSED') continue;
+
+    await prisma.campaign.update({ where: { id: campaign.id }, data: { sendStatus: 'SENDING', queuePausedAt: null } });
+    emitCampaignProgress(campaign.id);
+    await logAudit(account?.userId ?? '', 'CAMPAIGN_AUTO_RESUMED', campaign.id);
+    resumedCount += 1;
+  }
+  return resumedCount;
 };
 
 export const resumeCampaign = async (workspaceId: string, userId: string, campaignId: string) => {

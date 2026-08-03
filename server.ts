@@ -14,6 +14,7 @@ import { startImageCleanupScheduler } from './server/services/image-cleanup.serv
 import { startPdfCleanupScheduler } from './server/services/pdf-cleanup.service';
 import { startCampaignQueueWorker, stopCampaignQueueWorker } from './server/services/campaign-queue-worker.service';
 import { startReportScheduler, stopReportScheduler } from './server/services/report-scheduler.service';
+import { startWhatsappHealthScheduler, stopWhatsappHealthScheduler } from './server/services/whatsapp-health-scheduler.service';
 import { webhookVerifyHandler, webhookReceiveHandler } from './server/controllers/campaign-webhook.controller';
 import { seedPermissions } from './server/services/permission.service';
 import { config } from './server/lib/config';
@@ -100,6 +101,7 @@ async function startServer() {
   startPdfCleanupScheduler();
   startCampaignQueueWorker();
   startReportScheduler();
+  startWhatsappHealthScheduler();
   await seedPermissions();
   await validateStartupDependencies();
 
@@ -137,6 +139,7 @@ async function startServer() {
     appLogger.info(`${signal} received, shutting down gracefully...`);
     await stopCampaignQueueWorker();
     await stopReportScheduler();
+    await stopWhatsappHealthScheduler();
     httpServer.close(() => process.exit(0));
   };
   process.on('SIGTERM', () => void shutdown('SIGTERM'));

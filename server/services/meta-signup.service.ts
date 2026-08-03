@@ -1,10 +1,12 @@
 import { prisma } from '../lib/prisma';
 import { encryptToken } from '../lib/whatsapp-crypto';
-import { WhatsappGraphError } from '../lib/whatsapp-graph';
+import { WhatsappGraphError, subscribeToWebhooks } from '../lib/whatsapp-graph';
 import { toPublicAccount, qualityToHealth } from './whatsapp-account.service';
 import { consumeOAuthState, exchangeAuthorizationCode, MetaOAuthError } from './meta-oauth.service';
 import { fetchLiveAccountData } from './meta-sync.service';
 import { logAudit } from './whatsapp-audit.service';
+import { requiresAutoPause } from './meta-validation.service';
+import { resumeAutoPausedCampaignsForAccount } from './campaign-queue.service';
 
 export class MetaSignupError extends Error {
   constructor(message: string, public status: number) {
@@ -63,6 +65,15 @@ export const completeEmbeddedSignup = async (workspaceId: string, userId: string
     throw err;
   }
 
+  // Phase B.3 - captured before the upsert below so we know whether this
+  // completion is a genuine reconnect-from-trouble (to decide whether to
+  // auto-resume paused campaigns) vs a brand-new connection (nothing to
+  // resume). Reused Phase B.2 finding still holds: `userId` is @unique, so
+  // this upsert can never create a duplicate row for "same WABA/phone/
+  // business" - it always updates the existing one, preserving campaigns/
+  // analytics/history/queue untouched.
+  const existing = await prisma.whatsappAccount.findUnique({ where: { userId }, select: { id: true, tokenStatus: true } });
+
   try {
     const { phoneDetails, wabaDetails, businessDetails, tokenInfo } = await fetchLiveAccountData(
       input.phoneNumberId,
@@ -95,11 +106,18 @@ export const completeEmbeddedSignup = async (workspaceId: string, userId: string
       accessTokenEncrypted: encryptToken(accessToken),
       tokenCreatedAt: now,
       tokenUpdatedAt: now,
+      lastTokenRefresh: now,
       tokenExpiresAt,
       lastErrorMessage: null,
       lastSyncAt: now,
       lastValidationAt: now,
       lastValidationStatus: 'VALID',
+      // Phase B.3 - a completed Embedded Signup is always a reconnect event.
+      tokenStatus: 'CONNECTED' as const,
+      consecutiveValidationFailures: 0,
+      notificationType: null,
+      lastReconnectAt: now,
+      reconnectReason: null,
     };
 
     const account = await prisma.whatsappAccount.upsert({
@@ -109,6 +127,47 @@ export const completeEmbeddedSignup = async (workspaceId: string, userId: string
     });
 
     await logAudit(userId, 'ACCOUNT_CONNECTED_META_EMBEDDED_SIGNUP', `WABA ${input.wabaId}, phone ${input.phoneNumberId}`);
+
+    // Phase B.3 - auto-resume campaigns that were auto-paused because the
+    // OLD token broke, now that reconnect just replaced it. Only fires when
+    // the account was actually in a trouble state before this call -  a
+    // first-time connect or a reconnect while already healthy has nothing
+    // to resume.
+    if (existing && requiresAutoPause(existing.tokenStatus as any)) {
+      const resumedCount = await resumeAutoPausedCampaignsForAccount(existing.id);
+      await logAudit(userId, 'TOKEN_RECONNECTED', `via embedded signup, was ${existing.tokenStatus}, resumed ${resumedCount} campaign(s)`);
+    }
+
+    // Best-effort webhook subscription (3 attempts, 1s/2s backoff). Never
+    // blocks or fails the signup itself - a broken subscribe call shouldn't
+    // undo an otherwise-successful connect; it's recorded in the audit log
+    // instead so "nothing silently fails" without gating the user's flow.
+    let webhookSubscribed = false;
+    for (let attempt = 1; attempt <= 3 && !webhookSubscribed; attempt++) {
+      try {
+        await subscribeToWebhooks(input.wabaId, accessToken);
+        webhookSubscribed = true;
+      } catch (subscribeErr) {
+        if (attempt === 3) {
+          await logAudit(
+            userId,
+            'ACCOUNT_WEBHOOK_SUBSCRIBE_FAILED',
+            subscribeErr instanceof Error ? subscribeErr.message : 'Unknown error',
+          );
+        } else {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        }
+      }
+    }
+    if (webhookSubscribed) {
+      const withWebhook = await prisma.whatsappAccount.update({
+        where: { id: account.id },
+        data: { webhookSubscribed: true, lastWebhookSync: new Date() },
+      });
+      await logAudit(userId, 'ACCOUNT_WEBHOOK_SUBSCRIBED', input.wabaId);
+      return toPublicAccount(withWebhook);
+    }
+
     return toPublicAccount(account);
   } catch (err) {
     if (err instanceof WhatsappGraphError) {

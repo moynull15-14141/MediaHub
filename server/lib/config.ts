@@ -35,8 +35,16 @@ export const config = {
   },
 
   smtp: {
-    configured: Boolean(process.env.SMTP_HOST),
+    // Phase B.2 - real owner-notification emails (account health failover,
+    // token-expiring-soon). Requires host+user+password; port/from/secure
+    // have sane defaults so only credentials need setting to go live.
+    configured: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD),
     host: process.env.SMTP_HOST || null,
+    port: int(process.env.SMTP_PORT, 587),
+    user: process.env.SMTP_USER || null,
+    password: process.env.SMTP_PASSWORD || null,
+    from: process.env.SMTP_FROM || 'MediaHub <no-reply@mediahub.local>',
+    secure: bool(process.env.SMTP_SECURE, false),
   },
 
   meta: {

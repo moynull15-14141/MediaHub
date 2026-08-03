@@ -41,3 +41,33 @@ export const listAuditLogs = async (userId: string, options: ListAuditLogsOption
 
   return { logs, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
 };
+
+// Phase B.3 - GET /account/health-history. Deliberately reads from the
+// existing audit trail rather than a second stored "healthHistory" JSON
+// column - every lifecycle event (TOKEN_*, ACCOUNT_VALIDATED, AUTO_PAUSE,
+// AUTO_RESUME) is already durably recorded here, so a second copy would only
+// ever be able to drift from this one.
+const LIFECYCLE_ACTIONS = [
+  'TOKEN_VALIDATED', 'TOKEN_EXPIRED', 'TOKEN_INVALID', 'TOKEN_RECONNECTED',
+  'TOKEN_PERMISSION_REVOKED', 'TOKEN_RECONNECT_REQUIRED', 'TOKEN_VALIDATION_RATE_LIMITED',
+  'TOKEN_LIFECYCLE_NOTIFICATION', 'ACCOUNT_VALIDATED', 'AUTO_PAUSE', 'AUTO_RESUME',
+  'CAMPAIGN_AUTO_PAUSED', 'CAMPAIGN_AUTO_RESUMED',
+];
+
+export const listHealthHistory = async (userId: string, options: ListAuditLogsOptions) => {
+  const page = Math.max(1, Number(options.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(options.pageSize) || 25));
+
+  const where = { userId, action: { in: LIFECYCLE_ACTIONS } };
+  const [logs, total] = await Promise.all([
+    prisma.accountAuditLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.accountAuditLog.count({ where }),
+  ]);
+
+  return { logs, total, page, pageSize, totalPages: Math.max(1, Math.ceil(total / pageSize)) };
+};

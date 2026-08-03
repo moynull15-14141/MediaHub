@@ -12,6 +12,7 @@ import { whatsappFetch } from '@/src/lib/whatsapp-api';
 import { getApiBase } from '@/src/lib/api';
 import { WhatsappMessagePreview } from './WhatsappMessagePreview';
 import { MessageComposer, MAX_MESSAGE_LENGTH } from './MessageComposer';
+import { QualityBadge } from './QualityBadge';
 
 type RecipientSource = 'GROUP' | 'LABEL' | 'MANUAL';
 
@@ -39,9 +40,26 @@ interface CampaignDetail {
   status: string;
   messageText: string;
   templateId: string | null;
+  whatsappAccountId: string | null;
   recipientCount: number;
   recipients: RecipientEntry[];
   attachment: AttachmentInfo | null;
+}
+
+// Phase B.2 - Sending Account selector option. Deliberately a subset of the
+// full WhatsappAccount shape in WhatsappAccounts.tsx - only what's needed to
+// render and pick an account here.
+interface SendingAccountOption {
+  id: string;
+  userId: string;
+  businessName: string | null;
+  verifiedName: string | null;
+  displayPhoneNumber: string | null;
+  qualityRating: string | null;
+  messagingLimitTier: string | null;
+  status: 'CONNECTED' | 'DISCONNECTED' | 'ERROR';
+  sendingEnabled: boolean;
+  isDefault: boolean;
 }
 
 interface WhatsappGroup { id: string; name: string; }
@@ -82,7 +100,7 @@ interface CampaignFormDialogProps {
 }
 
 export function CampaignFormDialog({ open, campaignId, onClose, onSaved }: CampaignFormDialogProps) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { push } = useToast();
 
   const [tab, setTab] = useState<TabKey>('details');
@@ -95,6 +113,8 @@ export function CampaignFormDialog({ open, campaignId, onClose, onSaved }: Campa
   const [type, setType] = useState('OTHER');
   const [messageText, setMessageText] = useState('');
   const [templateId, setTemplateId] = useState<string | null>(null);
+  const [accountId, setAccountId] = useState<string | null>(null);
+  const [sendingAccounts, setSendingAccounts] = useState<SendingAccountOption[] | undefined>(undefined);
   const [recipients, setRecipients] = useState(() => new Map<string, RecipientEntry>());
   const [attachment, setAttachment] = useState<AttachmentInfo | null>(null);
   const [nameWarning, setNameWarning] = useState(false);
@@ -126,6 +146,15 @@ export function CampaignFormDialog({ open, campaignId, onClose, onSaved }: Campa
     whatsappFetch<WhatsappGroup[]>(token, '/groups').then(setGroups).catch(() => {});
     whatsappFetch<WhatsappLabel[]>(token, '/labels').then(setLabels).catch(() => {});
 
+    // Phase B.2 - Sending Account selector options. Workspace-wide list,
+    // gated by campaigns:write (not settings:read) so Operators/Managers can
+    // pick an account while building a campaign without broader account
+    // access - see /campaigns/sending-accounts on the backend.
+    setSendingAccounts(undefined);
+    const accountsPromise = whatsappFetch<SendingAccountOption[]>(token, '/campaigns/sending-accounts')
+      .then((list) => { setSendingAccounts(list); return list; })
+      .catch(() => { setSendingAccounts([]); return [] as SendingAccountOption[]; });
+
     if (campaignId) {
       setLoading(true);
       whatsappFetch<CampaignDetail>(token, `/campaigns/${campaignId}`)
@@ -136,6 +165,7 @@ export function CampaignFormDialog({ open, campaignId, onClose, onSaved }: Campa
           setStatus(data.status);
           setMessageText(data.messageText);
           setTemplateId(data.templateId);
+          setAccountId(data.whatsappAccountId);
           setAttachment(data.attachment);
           const map = new Map<string, RecipientEntry>();
           data.recipients.forEach((r) => map.set(r.contactId, r));
@@ -149,31 +179,49 @@ export function CampaignFormDialog({ open, campaignId, onClose, onSaved }: Campa
       setType('OTHER');
       setMessageText('');
       setTemplateId(null);
+      setAccountId(null);
       setAttachment(null);
       setRecipients(new Map());
       accountDefaultAttachmentKey.current = null;
 
-      // Auto-fill from account-level campaign defaults (Phase 5 Settings) -
-      // only for brand-new campaigns, never overwrites an existing draft.
-      whatsappFetch<any>(token, '/account')
-        .then(async (account) => {
-          if (!account) return;
-          accountDefaultAttachmentKey.current = account.defaultAttachmentKey || null;
-          if (account.defaultTemplateId) {
-            try {
-              const templateList = await whatsappFetch<MessageTemplateSummary[]>(token, '/templates');
-              const template = templateList.find((t) => t.id === account.defaultTemplateId);
-              if (template) {
-                const withFooter = account.defaultFooter ? `${template.messageText}\n\n${account.defaultFooter}` : template.messageText;
-                setMessageText(withFooter);
-                setTemplateId(template.id);
+      // Auto-select: exactly one account -> use it; else the workspace's
+      // marked default, if any. Matches "auto select if only one account /
+      // auto use default if one exists."
+      accountsPromise.then((list) => {
+        const resolvedId = list.length === 1 ? list[0].id : list.find((a) => a.isDefault)?.id ?? null;
+        if (resolvedId) setAccountId(resolvedId);
+
+        // Auto-fill from account-level campaign defaults (Phase 5 Settings) -
+        // only for brand-new campaigns, never overwrites an existing draft.
+        // The /account endpoint only ever returns the CALLER's own account,
+        // and there's no endpoint to read a workspace-mate's defaults, so
+        // this only applies when the resolved account is the caller's own
+        // (or the workspace has no accounts yet, matching pre-B.2 behavior)
+        // - a campaign auto-assigned to someone else's account starts blank
+        // rather than guessing at defaults it can't actually fetch.
+        const myAccount = list.find((a) => a.userId === user?.id);
+        if (list.length > 0 && myAccount && resolvedId !== myAccount.id) return;
+
+        whatsappFetch<any>(token, '/account')
+          .then(async (account) => {
+            if (!account) return;
+            accountDefaultAttachmentKey.current = account.defaultAttachmentKey || null;
+            if (account.defaultTemplateId) {
+              try {
+                const templateList = await whatsappFetch<MessageTemplateSummary[]>(token, '/templates');
+                const template = templateList.find((t) => t.id === account.defaultTemplateId);
+                if (template) {
+                  const withFooter = account.defaultFooter ? `${template.messageText}\n\n${account.defaultFooter}` : template.messageText;
+                  setMessageText(withFooter);
+                  setTemplateId(template.id);
+                }
+              } catch {
+                // default template lookup is best-effort - never block campaign creation
               }
-            } catch {
-              // default template lookup is best-effort - never block campaign creation
             }
-          }
-        })
-        .catch(() => {});
+          })
+          .catch(() => {});
+      });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, campaignId]);
@@ -250,6 +298,14 @@ export function CampaignFormDialog({ open, campaignId, onClose, onSaved }: Campa
     if (!messageText.trim()) { push({ title: 'Message is required' }); setTab('message'); return false; }
     if (overLimit) { push({ title: `Message exceeds ${MAX_MESSAGE_LENGTH} characters` }); setTab('message'); return false; }
     if (recipients.size === 0) { push({ title: 'Select at least one recipient' }); setTab('audience'); return false; }
+    // Only require a selection once the workspace actually has accounts to
+    // choose from - a still-onboarding workspace with zero accounts must
+    // still be able to save a draft (falls back to legacy userId resolution).
+    if ((sendingAccounts?.length ?? 0) > 0 && !accountId) {
+      push({ title: 'Select a sending account' });
+      setTab('details');
+      return false;
+    }
 
     setSaving(true);
     const payload = {
@@ -258,6 +314,7 @@ export function CampaignFormDialog({ open, campaignId, onClose, onSaved }: Campa
       type,
       messageText,
       templateId,
+      whatsappAccountId: accountId,
       recipients: [...recipients.values()].map((r: RecipientEntry) => ({ contactId: r.contactId, source: r.source })),
     };
     try {
@@ -443,6 +500,41 @@ export function CampaignFormDialog({ open, campaignId, onClose, onSaved }: Campa
                     <option value="OTHER">Other</option>
                   </Select>
                 </label>
+                {sendingAccounts === undefined ? (
+                  <Skeleton className="h-14 w-full max-w-md" />
+                ) : sendingAccounts.length > 0 ? (
+                  <label className="block max-w-md space-y-2 text-sm text-[var(--text-secondary)]">
+                    Sending account
+                    <Select value={accountId ?? ''} onChange={(e) => setAccountId(e.target.value || null)}>
+                      <option value="">Select an account…</option>
+                      {sendingAccounts.map((a) => {
+                        const label = a.businessName || a.verifiedName || a.displayPhoneNumber || 'WhatsApp account';
+                        const usable = a.sendingEnabled && a.status === 'CONNECTED';
+                        return (
+                          <option key={a.id} value={a.id}>
+                            {label} — {a.qualityRating ?? 'N/A'} · {a.messagingLimitTier ?? 'N/A'}{a.isDefault ? ' · Default' : ''}{!usable ? ' (unavailable)' : ''}
+                          </option>
+                        );
+                      })}
+                    </Select>
+                    {accountId && (() => {
+                      const selected = sendingAccounts.find((a) => a.id === accountId);
+                      if (!selected) return null;
+                      return (
+                        <span className="flex items-center gap-2 pt-1">
+                          <QualityBadge rating={selected.qualityRating} />
+                          {(!selected.sendingEnabled || selected.status !== 'CONNECTED') && (
+                            <Badge variant="danger">This account can't send right now</Badge>
+                          )}
+                        </span>
+                      );
+                    })()}
+                  </label>
+                ) : (
+                  <p className="max-w-md rounded-2xl border border-dashed border-[var(--border)] px-4 py-3 text-xs text-[var(--text-muted)]">
+                    No WhatsApp account connected yet - this campaign will use whichever account you connect before sending.
+                  </p>
+                )}
               </div>
             )}
 

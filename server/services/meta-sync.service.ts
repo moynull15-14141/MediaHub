@@ -80,6 +80,45 @@ export const syncAccount = async (workspaceId: string, userId: string) => {
   }
 };
 
+const ACTIVE_QUEUE_STATUSES = ['PENDING', 'WAITING', 'SENDING', 'RETRY'] as const;
+
+// Phase B.2 - "current queue" stat on the Accounts dashboard: how many
+// not-yet-terminal job rows are currently resolved to send from each
+// account. Computed here (not stored on WhatsappAccount) since it's a live
+// count, not a column - kept out of toPublicAccount so that function's
+// contract stays "exactly the DB row's public fields."
+const getPendingJobCountsByAccountId = async (
+  workspaceId: string,
+  accounts: { id: string; userId: string }[],
+): Promise<Map<string, number>> => {
+  const campaigns = await prisma.campaign.findMany({
+    where: { workspaceId, sendStatus: { in: ['SENDING', 'SCHEDULED', 'QUEUED'] } },
+    select: { id: true, userId: true, whatsappAccountId: true },
+  });
+  if (campaigns.length === 0) return new Map();
+
+  const accountIdByUserId = new Map(accounts.map((a) => [a.userId, a.id]));
+  const accountIdByCampaignId = new Map<string, string>();
+  for (const campaign of campaigns) {
+    const accountId = campaign.whatsappAccountId ?? accountIdByUserId.get(campaign.userId);
+    if (accountId) accountIdByCampaignId.set(campaign.id, accountId);
+  }
+
+  const counts = await prisma.campaignQueueJob.groupBy({
+    by: ['campaignId'],
+    where: { campaignId: { in: [...accountIdByCampaignId.keys()] }, status: { in: [...ACTIVE_QUEUE_STATUSES] } },
+    _count: true,
+  });
+
+  const result = new Map<string, number>();
+  for (const row of counts as any[]) {
+    const accountId = accountIdByCampaignId.get(row.campaignId);
+    if (!accountId) continue;
+    result.set(accountId, (result.get(accountId) ?? 0) + row._count);
+  }
+  return result;
+};
+
 // Part 7/10: every account connected within the workspace (one row per
 // member who has connected their own number), not just the requesting
 // user's own row - this is what makes the Accounts page reflect "one
@@ -89,5 +128,6 @@ export const listWorkspaceAccounts = async (workspaceId: string) => {
     where: { workspaceId },
     orderBy: { createdAt: 'asc' },
   });
-  return accounts.map(toPublicAccount);
+  const pendingCounts = await getPendingJobCountsByAccountId(workspaceId, accounts);
+  return accounts.map((a) => ({ ...toPublicAccount(a), pendingJobCount: pendingCounts.get(a.id) ?? 0 }));
 };

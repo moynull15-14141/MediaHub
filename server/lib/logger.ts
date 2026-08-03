@@ -38,3 +38,4 @@ export const requestLogger = makeLogger('request');
 export const errorLogger = makeLogger('error');
 export const auditLogger = makeLogger('audit');
 export const workerLogger = makeLogger('worker');
+export const tokenLogger = makeLogger('token'); // Phase B.3 - token lifecycle state transitions

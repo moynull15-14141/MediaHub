@@ -107,6 +107,17 @@ export const getWorkspaceMember = async (workspaceId: string, userId: string) =>
   });
 };
 
+// Phase B.2 - owner-notification emails (account health failover, token
+// expiring soon). Returns an array for forward-compatibility even though
+// today's model has exactly one OWNER per workspace (Phase A.2).
+export const getWorkspaceOwnerEmails = async (workspaceId: string): Promise<string[]> => {
+  const owners = await prisma.workspaceMember.findMany({
+    where: { workspaceId, role: 'OWNER', isActive: true },
+    include: { user: { select: { email: true } } },
+  });
+  return owners.map((o) => o.user.email).filter((email): email is string => Boolean(email));
+};
+
 // Resolves "the workspace this request should operate on": the user's
 // last-used workspace if they're still an active member of it, otherwise
 // their earliest active membership. Every authenticated WhatsApp route uses

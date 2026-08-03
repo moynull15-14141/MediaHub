@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { Smartphone, RefreshCw, Unplug, Clock3, ShieldCheck, AlertTriangle, Facebook, BadgeCheck, ShieldQuestion } from 'lucide-react';
+import { Smartphone, RefreshCw, Unplug, Clock3, ShieldCheck, AlertTriangle, Facebook, BadgeCheck, ShieldQuestion, Star, PowerOff, Power, PlayCircle, XCircle } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/src/components/ui/card';
 import { Button } from '@/src/components/ui/button';
 import { Badge } from '@/src/components/ui/badge';
@@ -11,6 +11,7 @@ import { useToast } from '@/src/components/ui/toast-provider';
 import { whatsappFetch } from '@/src/lib/whatsapp-api';
 import { usePermissions } from '@/src/hooks/usePermissions';
 import { useFacebookEmbeddedSignup } from '@/src/hooks/useFacebookEmbeddedSignup';
+import { QualityBadge } from '@/src/components/whatsapp/QualityBadge';
 
 interface WhatsappAccount {
   id: string;
@@ -32,7 +33,47 @@ interface WhatsappAccount {
   lastValidationAt: string | null;
   lastValidationStatus: string | null;
   createdAt: string;
+  // Phase B.2 - Production Multi-Account Engine
+  isDefault: boolean;
+  priority: number;
+  messagingLimit: number | null;
+  sendingEnabled: boolean;
+  dailyLimit: number | null;
+  currentDailySent: number;
+  lastHealthCheck: string | null;
+  lastWebhookSync: string | null;
+  webhookSubscribed: boolean;
+  tokenExpiringSoon: boolean;
+  pendingJobCount: number;
+  // Phase B.3 - Token Lifecycle Automation
+  tokenStatus: 'CONNECTED' | 'EXPIRING' | 'EXPIRED' | 'INVALID' | 'RECONNECT_REQUIRED' | 'PERMISSION_REVOKED' | 'DISCONNECTED';
+  consecutiveValidationFailures: number;
+  validationLatency: number | null;
+  lastSuccessfulValidation: string | null;
+  lastFailedValidation: string | null;
+  validationFailureReason: string | null;
 }
+
+const RECONNECT_NEEDED_STATES = new Set(['RECONNECT_REQUIRED', 'PERMISSION_REVOKED', 'INVALID']);
+
+const tokenStatusBadge = (status: WhatsappAccount['tokenStatus']) => {
+  switch (status) {
+    case 'CONNECTED':
+      return <Badge variant="success"><BadgeCheck className="h-3.5 w-3.5" /> Token connected</Badge>;
+    case 'EXPIRING':
+      return <Badge variant="warning"><Clock3 className="h-3.5 w-3.5" /> Token expiring</Badge>;
+    case 'EXPIRED':
+      return <Badge variant="warning"><AlertTriangle className="h-3.5 w-3.5" /> Token expired</Badge>;
+    case 'RECONNECT_REQUIRED':
+      return <Badge variant="danger"><XCircle className="h-3.5 w-3.5" /> Reconnect required</Badge>;
+    case 'PERMISSION_REVOKED':
+      return <Badge variant="danger"><ShieldQuestion className="h-3.5 w-3.5" /> Permission revoked</Badge>;
+    case 'INVALID':
+      return <Badge variant="danger"><XCircle className="h-3.5 w-3.5" /> Token invalid</Badge>;
+    default:
+      return <Badge variant="outline">Token disconnected</Badge>;
+  }
+};
 
 const healthBadge = (health: WhatsappAccount['healthStatus']) => {
   switch (health) {
@@ -77,13 +118,14 @@ const Field = ({ label, value }: { label: string; value: React.ReactNode }) => (
 export default function WhatsappAccounts() {
   const { token, user } = useAuth();
   const { push } = useToast();
-  const { can } = usePermissions();
+  const { can, role } = usePermissions();
   const canManage = can('settings:write');
+  const isWorkspaceAdmin = role === 'OWNER' || role === 'ADMIN';
   const { connect, connecting } = useFacebookEmbeddedSignup();
 
   const [accounts, setAccounts] = useState<WhatsappAccount[] | undefined>(undefined);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
-  const [busyAction, setBusyAction] = useState<'sync' | 'validate' | 'disconnect' | null>(null);
+  const [busyAction, setBusyAction] = useState<'sync' | 'validate' | 'disconnect' | 'default' | 'sending' | 'resume' | null>(null);
 
   const load = async () => {
     try {
@@ -138,6 +180,22 @@ export default function WhatsappAccounts() {
     }
   };
 
+  // Phase B.3 - manual trigger so a user who just fixed/reconnected doesn't
+  // have to wait up to 30 minutes for the health scheduler's next tick to
+  // auto-resume campaigns it auto-paused.
+  const handleResume = async () => {
+    setBusyAction('resume');
+    try {
+      const result = await whatsappFetch<{ resumedCount: number }>(token, '/account/resume', { method: 'POST' });
+      push({ title: result.resumedCount > 0 ? `Resumed ${result.resumedCount} campaign(s)` : 'Nothing to resume', description: result.resumedCount > 0 ? 'Auto-paused campaigns on this account are sending again.' : undefined });
+      await load();
+    } catch (err: any) {
+      push({ title: 'Failed to resume campaigns', description: err.message });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
   const handleDisconnect = async () => {
     setBusyAction('disconnect');
     try {
@@ -147,6 +205,34 @@ export default function WhatsappAccounts() {
       await load();
     } catch (err: any) {
       push({ title: 'Disconnect failed', description: err.message });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  // Phase B.2 - act on ANY account in the workspace (Owner/Admin only), not
+  // just the caller's own - distinct from the self-only actions above.
+  const handleSetDefault = async (accountId: string) => {
+    setBusyAction('default');
+    try {
+      await whatsappFetch(token, `/account/${accountId}/default`, { method: 'PATCH' });
+      push({ title: 'Default account updated' });
+      await load();
+    } catch (err: any) {
+      push({ title: 'Failed to set default account', description: err.message });
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleToggleSending = async (accountId: string, enabled: boolean) => {
+    setBusyAction('sending');
+    try {
+      await whatsappFetch(token, `/account/${accountId}/sending`, { method: 'PATCH', body: JSON.stringify({ enabled }) });
+      push({ title: enabled ? 'Sending enabled' : 'Sending disabled', description: enabled ? undefined : 'Any campaigns currently sending on this account were paused.' });
+      await load();
+    } catch (err: any) {
+      push({ title: 'Failed to update sending status', description: err.message });
     } finally {
       setBusyAction(null);
     }
@@ -207,17 +293,40 @@ export default function WhatsappAccounts() {
                           <Smartphone className="h-5 w-5" />
                         </div>
                         <CardTitle className="text-lg">{account.businessName || 'WhatsApp Business Account'}</CardTitle>
+                        {account.isDefault && (
+                          <Badge variant="outline"><Star className="h-3.5 w-3.5" /> Default</Badge>
+                        )}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {connectionBadge(account.connectionHealth)}
+                        {tokenStatusBadge(account.tokenStatus)}
                         {healthBadge(account.healthStatus)}
                         {sourceBadge(account.connectionSource)}
+                        {!account.sendingEnabled && (
+                          <Badge variant="danger"><PowerOff className="h-3.5 w-3.5" /> Sending disabled</Badge>
+                        )}
+                        {account.tokenExpiringSoon && (
+                          <Badge variant="warning"><Clock3 className="h-3.5 w-3.5" /> Token expiring soon</Badge>
+                        )}
                       </div>
                     </div>
                   </CardHeader>
                   <CardContent className="space-y-4">
                     {account.lastErrorMessage && (
                       <div className="rounded-2xl bg-rose-500/10 px-4 py-3 text-sm text-rose-200">{account.lastErrorMessage}</div>
+                    )}
+                    {isMine && RECONNECT_NEEDED_STATES.has(account.tokenStatus) && (
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                        <div>
+                          <p className="font-medium">This account needs attention: {account.tokenStatus.replace(/_/g, ' ').toLowerCase()}</p>
+                          <p className="mt-1 text-xs text-amber-200/80">{account.validationFailureReason || 'Reconnect to restore sending.'}</p>
+                        </div>
+                        {canManage && (
+                          <Button size="sm" onClick={handleConnect} disabled={connecting}>
+                            <Facebook className="mr-2 h-4 w-4" /> Reconnect now
+                          </Button>
+                        )}
+                      </div>
                     )}
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                       <Field label="Business name" value={account.businessName} />
@@ -227,11 +336,19 @@ export default function WhatsappAccounts() {
                       <Field label="WABA ID" value={account.wabaId} />
                       <Field label="Business ID" value={account.metaBusinessId} />
                       <Field label="Status" value={account.status} />
-                      <Field label="Quality rating" value={account.qualityRating} />
+                      <Field label="Quality rating" value={<QualityBadge rating={account.qualityRating} />} />
                       <Field label="Messaging tier" value={account.messagingLimitTier} />
                       <Field label="Connected at" value={new Date(account.createdAt).toLocaleString()} />
                       <Field label="Last sync" value={account.lastSyncAt ? new Date(account.lastSyncAt).toLocaleString() : 'never'} />
                       <Field label="Last validation" value={account.lastValidationAt ? new Date(account.lastValidationAt).toLocaleString() : 'never'} />
+                      <Field label="Last health check" value={account.lastHealthCheck ? new Date(account.lastHealthCheck).toLocaleString() : 'never'} />
+                      <Field label="Webhook subscribed" value={account.webhookSubscribed ? 'Yes' : 'No'} />
+                      <Field label="Daily usage" value={`${account.currentDailySent} / ${account.dailyLimit ?? '∞'}`} />
+                      <Field label="Current queue" value={account.pendingJobCount} />
+                      <Field label="Last successful validation" value={account.lastSuccessfulValidation ? new Date(account.lastSuccessfulValidation).toLocaleString() : 'never'} />
+                      <Field label="Last failed validation" value={account.lastFailedValidation ? new Date(account.lastFailedValidation).toLocaleString() : 'never'} />
+                      <Field label="Validation latency" value={account.validationLatency != null ? `${account.validationLatency}ms` : '—'} />
+                      <Field label="Consecutive failures" value={account.consecutiveValidationFailures} />
                     </div>
                     {isMine && canManage && (
                       <div className="flex flex-wrap gap-3 pt-2">
@@ -247,6 +364,11 @@ export default function WhatsappAccounts() {
                         <Button variant="outline" className="text-rose-300 hover:bg-rose-500/10" onClick={() => setDisconnectOpen(true)} disabled={busyAction !== null}>
                           <Unplug className="mr-2 h-4 w-4" /> Disconnect
                         </Button>
+                        {account.tokenStatus === 'CONNECTED' && (
+                          <Button variant="outline" onClick={handleResume} disabled={busyAction !== null}>
+                            <PlayCircle className="mr-2 h-4 w-4" /> Resume paused campaigns
+                          </Button>
+                        )}
                       </div>
                     )}
                     {isMine && !canManage && (
@@ -255,6 +377,31 @@ export default function WhatsappAccounts() {
                     {!isMine && (
                       <div className="flex items-center gap-2 pt-1 text-xs text-[var(--text-muted)]">
                         <Clock3 className="h-3.5 w-3.5" /> Connected by another workspace member
+                      </div>
+                    )}
+                    {isWorkspaceAdmin && (
+                      <div className="flex flex-wrap gap-3 border-t border-[var(--border)] pt-3">
+                        <Button
+                          variant="outline"
+                          onClick={() => handleSetDefault(account.id)}
+                          disabled={busyAction !== null || account.isDefault}
+                        >
+                          <Star className="mr-2 h-4 w-4" /> {account.isDefault ? 'Default account' : 'Set as default'}
+                        </Button>
+                        {account.sendingEnabled ? (
+                          <Button
+                            variant="outline"
+                            className="text-rose-300 hover:bg-rose-500/10"
+                            onClick={() => handleToggleSending(account.id, false)}
+                            disabled={busyAction !== null}
+                          >
+                            <PowerOff className="mr-2 h-4 w-4" /> Disable sending
+                          </Button>
+                        ) : (
+                          <Button variant="outline" onClick={() => handleToggleSending(account.id, true)} disabled={busyAction !== null}>
+                            <Power className="mr-2 h-4 w-4" /> Enable sending
+                          </Button>
+                        )}
                       </div>
                     )}
                   </CardContent>

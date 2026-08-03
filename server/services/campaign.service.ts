@@ -96,6 +96,23 @@ const resolveTemplateId = async (workspaceId: string, templateId: unknown): Prom
   return template && template.workspaceId === workspaceId ? templateId : null;
 };
 
+// Phase B.2 - validates a client-supplied sending account actually belongs
+// to this workspace (never trust the id blindly), mirroring resolveTemplateId's
+// pattern above. Unlike resolveTemplateId, an invalid id here is a hard error
+// (400), not silently dropped - picking the wrong account to send from is a
+// real mistake, not optional provenance metadata.
+const resolveWhatsappAccountId = async (workspaceId: string, whatsappAccountId: unknown): Promise<string | null> => {
+  if (whatsappAccountId === null || whatsappAccountId === undefined || whatsappAccountId === '') return null;
+  if (typeof whatsappAccountId !== 'string') {
+    throw new CampaignError('Selected sending account not found in this workspace', 400);
+  }
+  const account = await prisma.whatsappAccount.findUnique({ where: { id: whatsappAccountId }, select: { workspaceId: true } });
+  if (!account || account.workspaceId !== workspaceId) {
+    throw new CampaignError('Selected sending account not found in this workspace', 400);
+  }
+  return whatsappAccountId;
+};
+
 const checkDuplicateName = async (workspaceId: string, name: string, excludeId?: string): Promise<boolean> => {
   const existing = await prisma.campaign.findFirst({
     where: { workspaceId, name: { equals: name, mode: 'insensitive' }, ...(excludeId ? { id: { not: excludeId } } : {}) },
@@ -120,6 +137,7 @@ export const toPublicCampaignSummary = (campaign: any, createdByEmail: string | 
   scheduledAt: campaign.scheduledAt,
   timezone: campaign.timezone,
   templateId: campaign.templateId,
+  whatsappAccountId: campaign.whatsappAccountId,
   createdBy: createdByEmail,
   createdAt: campaign.createdAt,
   updatedAt: campaign.updatedAt,
@@ -151,6 +169,7 @@ const toPublicCampaignDetail = async (campaign: any) => {
     timezone: campaign.timezone,
     messageText: campaign.messageText,
     templateId: campaign.templateId,
+    whatsappAccountId: campaign.whatsappAccountId,
     createdBy: ownerEmail,
     createdAt: campaign.createdAt,
     updatedAt: campaign.updatedAt,
@@ -230,6 +249,7 @@ export const createCampaign = async (workspaceId: string, userId: string, body: 
   const messageText = validateMessageText(body?.messageText);
   const recipients = await validateRecipients(workspaceId, body?.recipients);
   const templateId = await resolveTemplateId(workspaceId, body?.templateId);
+  const whatsappAccountId = await resolveWhatsappAccountId(workspaceId, body?.whatsappAccountId);
   const nameAlreadyExists = await checkDuplicateName(workspaceId, name);
 
   const campaign = await prisma.campaign.create({
@@ -242,6 +262,7 @@ export const createCampaign = async (workspaceId: string, userId: string, body: 
       status: 'DRAFT',
       messageText,
       templateId,
+      whatsappAccountId,
       recipients: { create: recipients.map((r) => ({ contactId: r.contactId, source: r.source })) },
     },
     include: CAMPAIGN_INCLUDE,
@@ -260,6 +281,7 @@ export const updateCampaign = async (workspaceId: string, campaignId: string, bo
   const messageText = validateMessageText(body?.messageText);
   const recipients = await validateRecipients(workspaceId, body?.recipients);
   const templateId = await resolveTemplateId(workspaceId, body?.templateId);
+  const whatsappAccountId = await resolveWhatsappAccountId(workspaceId, body?.whatsappAccountId);
   const nameAlreadyExists = await checkDuplicateName(workspaceId, name, campaignId);
 
   await prisma.$transaction([
@@ -272,6 +294,7 @@ export const updateCampaign = async (workspaceId: string, campaignId: string, bo
         type,
         messageText,
         templateId,
+        whatsappAccountId,
         recipients: { create: recipients.map((r) => ({ contactId: r.contactId, source: r.source })) },
       },
     }),

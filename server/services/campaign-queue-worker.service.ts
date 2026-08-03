@@ -99,6 +99,32 @@ const recordSend = (accountId: string, account: Pick<WhatsappAccount, 'minDelayS
   const max = Math.max(min, account.maxDelaySeconds);
   const jitterSeconds = min + Math.random() * (max - min); // random, not fixed
   state.nextAllowedAt = now + jitterSeconds * 1000;
+
+  // Fire-and-forget daily counter increment - mirrors processJob's own
+  // non-blocking dispatch pattern, never awaited on the hot tick path.
+  void prisma.whatsappAccount
+    .update({ where: { id: accountId }, data: { currentDailySent: { increment: 1 } } })
+    .catch((err) => console.error(`Failed to increment currentDailySent for account ${accountId}:`, err));
+};
+
+const isSameUtcDay = (a: Date, b: Date): boolean =>
+  a.getUTCFullYear() === b.getUTCFullYear() && a.getUTCMonth() === b.getUTCMonth() && a.getUTCDate() === b.getUTCDate();
+
+// Rolls the daily counter over to 0 once UTC-midnight has passed since the
+// account's last reset, then reports whether the account is still under its
+// configured cap. `dailyLimit === null` means "no cap" (always allowed).
+const isUnderDailyLimit = async (account: WhatsappAccount): Promise<boolean> => {
+  if (account.dailyLimit == null) return true;
+  const now = new Date();
+  if (!account.lastDailyReset || !isSameUtcDay(account.lastDailyReset, now)) {
+    account.currentDailySent = 0;
+    account.lastDailyReset = now;
+    await prisma.whatsappAccount.update({
+      where: { id: account.id },
+      data: { currentDailySent: 0, lastDailyReset: now },
+    });
+  }
+  return account.currentDailySent < account.dailyLimit;
 };
 
 // --- Crash / restart recovery ---
@@ -256,6 +282,10 @@ const processJob = async (
 // while up to `maxConcurrentJobs` sends can be in flight simultaneously per
 // account since dispatched jobs aren't awaited here - they run in the
 // background and the next tick's in-flight count reflects them.
+// Resolves which WhatsappAccount a campaign sends from, same fallback rule as
+// campaign-queue.service.ts's resolveAccountForCampaign (duplicated here in
+// query form rather than imported, since this hot loop wants a memoized,
+// batched lookup instead of one Prisma round-trip per campaign per tick).
 const dispatchNextBatch = async (): Promise<void> => {
   const activeCampaigns = await prisma.campaign.findMany({
     where: { sendStatus: 'SENDING' },
@@ -263,21 +293,41 @@ const dispatchNextBatch = async (): Promise<void> => {
   });
   if (activeCampaigns.length === 0) return;
 
-  const byUser = new Map<string, typeof activeCampaigns>();
+  // Memoized per-tick userId -> accountId lookup, so legacy (null-FK)
+  // campaigns sharing an owner don't each issue a duplicate query.
+  const accountIdByUserId = new Map<string, string | null>();
+  const resolveLegacyAccountId = async (userId: string): Promise<string | null> => {
+    if (accountIdByUserId.has(userId)) return accountIdByUserId.get(userId)!;
+    const account = await prisma.whatsappAccount.findUnique({ where: { userId }, select: { id: true } });
+    const id = account?.id ?? null;
+    accountIdByUserId.set(userId, id);
+    return id;
+  };
+
+  const byAccountId = new Map<string, typeof activeCampaigns>();
   for (const campaign of activeCampaigns) {
-    const list = byUser.get(campaign.userId) ?? [];
+    const accountId = campaign.whatsappAccountId ?? (await resolveLegacyAccountId(campaign.userId));
+    if (!accountId) continue; // no resolvable account at all - same as today's "account not found" skip
+    const list = byAccountId.get(accountId) ?? [];
     list.push(campaign);
-    byUser.set(campaign.userId, list);
+    byAccountId.set(accountId, list);
   }
 
-  for (const [userId, campaigns] of byUser) {
-    const account = await prisma.whatsappAccount.findUnique({ where: { userId } });
+  for (const [accountId, campaigns] of byAccountId) {
+    const account = await prisma.whatsappAccount.findUnique({ where: { id: accountId } });
     if (!account || account.status !== 'CONNECTED') continue;
+    if (!account.sendingEnabled) continue;
     if (!isWithinWorkingHours(account)) continue;
     if (!canSendForAccount(account.id, account)) continue;
+    if (!(await isUnderDailyLimit(account))) continue;
 
+    // This account's own bucket already contains exactly the campaigns
+    // resolved to it this tick (explicit FK match or legacy fallback), so the
+    // in-flight count is correctly scoped per-account without needing a
+    // union condition - two campaigns sharing an account share this budget;
+    // two campaigns on different accounts never compete for it.
     const inFlight = await prisma.campaignQueueJob.count({
-      where: { status: 'SENDING', campaign: { userId } },
+      where: { status: 'SENDING', campaignId: { in: campaigns.map((c) => c.id) } },
     });
     if (inFlight >= account.maxConcurrentJobs) continue;
 

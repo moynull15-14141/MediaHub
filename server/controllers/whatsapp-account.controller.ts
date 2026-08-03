@@ -15,11 +15,16 @@ import {
   removeLogo,
   uploadDefaultAttachment,
   removeDefaultAttachment,
+  setDefaultAccount,
+  setAccountPriority,
+  setSendingEnabled,
+  getTokenStatus,
+  resumeAccount,
   WhatsappAccountError,
 } from '../services/whatsapp-account.service';
 import { getApiHealth } from '../services/api-health.service';
 import { getSystemHealth } from '../services/system-health.service';
-import { listAuditLogs } from '../services/whatsapp-audit.service';
+import { listAuditLogs, listHealthHistory } from '../services/whatsapp-audit.service';
 
 const handleAccountError = (err: any, res: Response, fallback: string) => {
   if (err instanceof WhatsappAccountError) {
@@ -130,6 +135,68 @@ export const auditLogsHandler = async (req: Request, res: Response) => {
     res.json(result);
   } catch (err) {
     handleAccountError(err, res, 'Failed to load audit logs');
+  }
+};
+
+// Phase B.3 - Token Lifecycle Automation
+export const tokenStatusHandler = async (req: Request, res: Response) => {
+  try {
+    const status = await getTokenStatus(getUserId(req));
+    res.json(status);
+  } catch (err) {
+    handleAccountError(err, res, 'Failed to load token status');
+  }
+};
+
+export const resumeAccountHandler = async (req: Request, res: Response) => {
+  try {
+    const result = await resumeAccount(getUserId(req));
+    res.json(result);
+  } catch (err) {
+    handleAccountError(err, res, 'Failed to resume campaigns');
+  }
+};
+
+export const healthHistoryHandler = async (req: Request, res: Response) => {
+  try {
+    const { page, pageSize } = req.query;
+    const result = await listHealthHistory(getUserId(req), {
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+    res.json(result);
+  } catch (err) {
+    handleAccountError(err, res, 'Failed to load health history');
+  }
+};
+
+// Phase B.2 - act on ANY account in the workspace by id (route params), not
+// just the caller's own - legitimate because these routes are gated by
+// requireWorkspaceRole('ADMIN'), not the self-scoped settings:* permission.
+export const setDefaultAccountHandler = async (req: Request, res: Response) => {
+  try {
+    const account = await setDefaultAccount(getWorkspaceId(req), getUserId(req), req.params.accountId);
+    res.json(account);
+  } catch (err) {
+    handleAccountError(err, res, 'Failed to set default account');
+  }
+};
+
+export const setSendingEnabledHandler = async (req: Request, res: Response) => {
+  try {
+    const account = await setSendingEnabled(getWorkspaceId(req), getUserId(req), req.params.accountId, Boolean(req.body?.enabled));
+    res.json(account);
+  } catch (err) {
+    handleAccountError(err, res, 'Failed to update sending status');
+  }
+};
+
+export const setPriorityHandler = async (req: Request, res: Response) => {
+  try {
+    const account = await setAccountPriority(getWorkspaceId(req), getUserId(req), req.params.accountId, Number(req.body?.priority));
+    res.json(account);
+  } catch (err) {
+    handleAccountError(err, res, 'Failed to update priority');
   }
 };
 

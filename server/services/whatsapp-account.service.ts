@@ -6,6 +6,8 @@ import { tokenLifetimeSeconds } from './user.service';
 import { logAudit } from './whatsapp-audit.service';
 import { sanitizeText } from './contact.service';
 import { inferAttachmentType, getMaxBytesForType } from './campaign-attachment.service';
+import { pauseCampaignsForAccountFailover, resumeAutoPausedCampaignsForAccount } from './campaign-queue.service';
+import { requiresAutoPause } from './meta-validation.service';
 
 const MAX_LOGO_BYTES = 2 * 1024 * 1024;
 const ALLOWED_LOGO_MIME = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml']);
@@ -87,6 +89,33 @@ export const toPublicAccount = (account: any) => ({
   tokenExpiresAt: account.tokenExpiresAt,
   lastValidationAt: account.lastValidationAt,
   lastValidationStatus: account.lastValidationStatus,
+  // Phase B.2 - Production Multi-Account Engine, additive for the same
+  // reason as the Phase B.1 block above.
+  isDefault: account.isDefault,
+  priority: account.priority,
+  messagingLimit: account.messagingLimit,
+  sendingEnabled: account.sendingEnabled,
+  dailyLimit: account.dailyLimit,
+  currentDailySent: account.currentDailySent,
+  lastDailyReset: account.lastDailyReset,
+  lastHealthCheck: account.lastHealthCheck,
+  lastWebhookSync: account.lastWebhookSync,
+  webhookSubscribed: account.webhookSubscribed,
+  lastTokenRefresh: account.lastTokenRefresh,
+  tokenExpiringSoon: account.tokenExpiringSoon,
+  // Phase B.3 - Token Lifecycle Automation, additive for the same reason as
+  // the Phase B.1/B.2 blocks above.
+  tokenStatus: account.tokenStatus,
+  lastTokenValidation: account.lastTokenValidation,
+  lastSuccessfulValidation: account.lastSuccessfulValidation,
+  lastFailedValidation: account.lastFailedValidation,
+  lastReconnectRequiredAt: account.lastReconnectRequiredAt,
+  lastReconnectAt: account.lastReconnectAt,
+  reconnectReason: account.reconnectReason,
+  validationFailureReason: account.validationFailureReason,
+  consecutiveValidationFailures: account.consecutiveValidationFailures,
+  connectionStateUpdatedAt: account.connectionStateUpdatedAt,
+  validationLatency: account.validationLatency,
   createdAt: account.createdAt,
   updatedAt: account.updatedAt,
 });
@@ -144,8 +173,15 @@ export const connectAccount = async (workspaceId: string, userId: string, body: 
       accessTokenEncrypted: encryptToken(input.accessToken),
       tokenCreatedAt: now,
       tokenUpdatedAt: now,
+      lastTokenRefresh: now,
       lastErrorMessage: null,
       lastSyncAt: now,
+      // Phase B.3 - a fresh manual connect is a reconnect event.
+      tokenStatus: 'CONNECTED',
+      consecutiveValidationFailures: 0,
+      notificationType: null,
+      lastReconnectAt: now,
+      reconnectReason: null,
     },
     update: {
       phoneNumberId: input.phoneNumberId,
@@ -158,8 +194,16 @@ export const connectAccount = async (workspaceId: string, userId: string, body: 
       status: 'CONNECTED',
       accessTokenEncrypted: encryptToken(input.accessToken),
       tokenUpdatedAt: now,
+      lastTokenRefresh: now,
       lastErrorMessage: null,
       lastSyncAt: now,
+      // Phase B.3 - a fresh manual (re)connect resets the lifecycle state,
+      // same as embedded signup's completeEmbeddedSignup does.
+      tokenStatus: 'CONNECTED',
+      consecutiveValidationFailures: 0,
+      notificationType: null,
+      lastReconnectAt: now,
+      reconnectReason: null,
     },
   });
 
@@ -402,6 +446,7 @@ export const rotateToken = async (userId: string, body: any) => {
     data: {
       accessTokenEncrypted: encryptToken(accessToken),
       tokenUpdatedAt: now,
+      lastTokenRefresh: now,
       displayPhoneNumber: details.displayPhoneNumber,
       businessName: details.verifiedName,
       qualityRating: details.qualityRating,
@@ -410,8 +455,22 @@ export const rotateToken = async (userId: string, body: any) => {
       status: 'CONNECTED',
       lastErrorMessage: null,
       lastSyncAt: now,
+      // Phase B.3 - a rotated token is a reconnect event: reset the
+      // lifecycle state and auto-resume anything that was auto-paused
+      // because of the old (broken) token, without waiting for the next
+      // scheduler tick.
+      tokenStatus: 'CONNECTED',
+      consecutiveValidationFailures: 0,
+      notificationType: null,
+      lastReconnectAt: now,
+      reconnectReason: null,
     },
   });
+
+  if (requiresAutoPause(existing.tokenStatus as any)) {
+    await resumeAutoPausedCampaignsForAccount(existing.id);
+    await logAudit(userId, 'TOKEN_RECONNECTED', `via rotate-token, was ${existing.tokenStatus}`);
+  }
 
   await logAudit(userId, 'TOKEN_ROTATED');
   return toPublicAccount(updated);
@@ -535,4 +594,92 @@ export const removeDefaultAttachment = async (userId: string) => {
     where: { userId },
     data: { defaultAttachmentKey: null, defaultAttachmentType: null, defaultAttachmentFilename: null, defaultAttachmentMimeType: null },
   });
+};
+
+// --- Phase B.2 - workspace-wide account management. Unlike every function
+// above (which only ever reads/writes the CALLER's own account via
+// `where: { userId }`), these three act on ANY account within the acting
+// user's workspace by id - legitimate only because the routes calling them
+// are gated by requireWorkspaceRole('ADMIN'), not because the underlying
+// WhatsappAccount.userId-unique model changed shape. ---
+
+const requireWorkspaceAccount = async (workspaceId: string, accountId: string) => {
+  const account = await prisma.whatsappAccount.findUnique({ where: { id: accountId } });
+  if (!account || account.workspaceId !== workspaceId) {
+    throw new WhatsappAccountError('WhatsApp account not found in this workspace', 404);
+  }
+  return account;
+};
+
+export const setDefaultAccount = async (workspaceId: string, actingUserId: string, targetAccountId: string) => {
+  await requireWorkspaceAccount(workspaceId, targetAccountId);
+  const [, updated] = await prisma.$transaction([
+    prisma.whatsappAccount.updateMany({
+      where: { workspaceId, id: { not: targetAccountId } },
+      data: { isDefault: false },
+    }),
+    prisma.whatsappAccount.update({ where: { id: targetAccountId }, data: { isDefault: true } }),
+  ]);
+  await logAudit(actingUserId, 'ACCOUNT_DEFAULT_CHANGED', targetAccountId);
+  return toPublicAccount(updated);
+};
+
+export const setAccountPriority = async (workspaceId: string, actingUserId: string, targetAccountId: string, priority: number) => {
+  await requireWorkspaceAccount(workspaceId, targetAccountId);
+  if (!Number.isInteger(priority) || priority < 0 || priority > 100) {
+    throw new WhatsappAccountError('priority must be an integer between 0 and 100', 400);
+  }
+  const updated = await prisma.whatsappAccount.update({ where: { id: targetAccountId }, data: { priority } });
+  await logAudit(actingUserId, 'SETTINGS_UPDATED', `${targetAccountId}: priority -> ${priority}`);
+  return toPublicAccount(updated);
+};
+
+export const setSendingEnabled = async (workspaceId: string, actingUserId: string, targetAccountId: string, enabled: boolean) => {
+  const account = await requireWorkspaceAccount(workspaceId, targetAccountId);
+  const updated = await prisma.whatsappAccount.update({ where: { id: targetAccountId }, data: { sendingEnabled: enabled } });
+
+  if (account.sendingEnabled && !enabled) {
+    const pausedCount = await pauseCampaignsForAccountFailover(targetAccountId, 'Sending disabled by workspace admin');
+    await logAudit(actingUserId, 'ACCOUNT_SENDING_DISABLED', `${targetAccountId}: paused ${pausedCount} campaign(s)`);
+  } else if (!account.sendingEnabled && enabled) {
+    await logAudit(actingUserId, 'ACCOUNT_SENDING_ENABLED', targetAccountId);
+  }
+  return toPublicAccount(updated);
+};
+
+// --- Phase B.3 - Token Lifecycle Automation, self-service endpoints (act on
+// the CALLER's own account, matching every function above except the three
+// workspace-admin ones just above this block). ---
+
+// GET /account/token-status - lightweight subset for the dashboard, so
+// polling doesn't need to pull the full account payload every time.
+export const getTokenStatus = async (userId: string) => {
+  const account = await prisma.whatsappAccount.findUnique({ where: { userId } });
+  if (!account) throw new WhatsappAccountError('No WhatsApp account is connected', 404);
+  return {
+    tokenStatus: account.tokenStatus,
+    connectionHealth: account.connectionHealth,
+    reconnectRequired: requiresAutoPause(account.tokenStatus as any),
+    tokenExpiresAt: account.tokenExpiresAt,
+    tokenExpiringSoon: account.tokenExpiringSoon,
+    lastTokenValidation: account.lastTokenValidation,
+    lastSuccessfulValidation: account.lastSuccessfulValidation,
+    lastFailedValidation: account.lastFailedValidation,
+    validationFailureReason: account.validationFailureReason,
+    consecutiveValidationFailures: account.consecutiveValidationFailures,
+    validationLatency: account.validationLatency,
+    notificationType: account.notificationType,
+    connectionStateUpdatedAt: account.connectionStateUpdatedAt,
+    tokenStateVersion: account.tokenStateVersion,
+  };
+};
+
+// POST /account/resume - manual trigger for the case where a user fixes/
+// reconnects an account and doesn't want to wait up to 30 minutes for the
+// next scheduler tick to auto-resume campaigns it paused.
+export const resumeAccount = async (userId: string) => {
+  const account = await prisma.whatsappAccount.findUnique({ where: { userId } });
+  if (!account) throw new WhatsappAccountError('No WhatsApp account is connected', 404);
+  const resumedCount = await resumeAutoPausedCampaignsForAccount(account.id);
+  return { resumedCount };
 };

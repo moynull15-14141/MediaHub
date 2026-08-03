@@ -224,10 +224,61 @@ model WhatsappAccount {
   lastValidationAt     DateTime?
   lastValidationStatus String?
 
+  // Phase B.2 - Production Multi-Account Engine. All additive/nullable or
+  // defaulted so every existing row needs no data migration beyond the
+  // one-time isDefault backfill done in this phase's migration.sql.
+  isDefault            Boolean               @default(false)
+  priority             Int                   @default(0)
+  messagingLimit       Int?
+  sendingEnabled       Boolean               @default(true)
+  dailyLimit           Int?
+  currentDailySent     Int                   @default(0)
+  lastDailyReset       DateTime?
+  lastHealthCheck      DateTime?
+  lastWebhookSync      DateTime?
+  webhookSubscribed    Boolean               @default(false)
+  lastTokenRefresh     DateTime?
+  tokenExpiringSoon    Boolean               @default(false)
+
+  // Phase B.3 - Token Lifecycle Automation. All additive/nullable or
+  // defaulted so every existing row needs no data migration - existing rows
+  // default to tokenStatus CONNECTED and get correctly reclassified on the
+  // very next health-scheduler tick. Layered on top of, not replacing,
+  // status/connectionHealth/healthStatus above - those keep being written
+  // (derived from tokenStatus) so every pre-B.3 consumer is unaffected.
+  tokenStatus                   WhatsappTokenStatus @default(CONNECTED)
+  lastTokenValidation           DateTime?
+  lastSuccessfulValidation      DateTime?
+  lastFailedValidation          DateTime?
+  lastReconnectRequiredAt       DateTime?
+  lastReconnectAt               DateTime?
+  reconnectReason               String?
+  validationFailureReason       String?
+  consecutiveValidationFailures Int                 @default(0)
+  tokenStateVersion             Int                 @default(0)
+  connectionStateUpdatedAt      DateTime?
+  notificationSentAt            DateTime?
+  notificationType              String?
+  validationLatency             Int?
+
+  campaigns            Campaign[]
+
   createdAt            DateTime              @default(now())
   updatedAt            DateTime              @updatedAt
 
   @@index([workspaceId])
+  @@index([workspaceId, isDefault])
+  @@index([tokenStatus])
+}
+
+enum WhatsappTokenStatus {
+  CONNECTED
+  EXPIRING
+  EXPIRED
+  INVALID
+  RECONNECT_REQUIRED
+  PERMISSION_REVOKED
+  DISCONNECTED
 }
 
 // Phase B.1 Part 3 - short-lived, single-use CSRF/replay guard for the Meta
@@ -473,6 +524,13 @@ model Campaign {
   queueStartedAt   DateTime?
   queueCompletedAt DateTime?
   queuePausedAt    DateTime?
+  // Phase B.2 - Production Multi-Account Engine. Nullable: existing
+  // campaigns keep resolving their sending account via userId (see
+  // campaign-queue.service.ts's resolveAccountForCampaign fallback).
+  // onDelete: SetNull so disconnecting an account never blocks/cascades
+  // into deleting campaigns - they just revert to that legacy fallback.
+  whatsappAccountId String?
+  whatsappAccount   WhatsappAccount?    @relation(fields: [whatsappAccountId], references: [id], onDelete: SetNull)
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
   recipients       CampaignRecipient[]
@@ -485,6 +543,7 @@ model Campaign {
   @@index([sendStatus])
   @@index([sendStatus, scheduledAt])
   @@index([workspaceId, templateId])
+  @@index([whatsappAccountId])
 }
 
 enum CampaignSendMode {

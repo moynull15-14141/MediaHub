@@ -2,7 +2,12 @@ const GRAPH_API_VERSION = process.env.WHATSAPP_GRAPH_API_VERSION || 'v20.0';
 const GRAPH_BASE_URL = 'https://graph.facebook.com';
 
 export class WhatsappGraphError extends Error {
-  constructor(message: string, public status: number) {
+  // Phase B.3 - metaErrorCode/metaErrorSubcode carry Meta's raw error.code /
+  // error.error_subcode through (e.g. 4/17/32 = rate limiting) so callers
+  // that need finer classification than the coarsened HTTP-ish `status`
+  // (401/400/502) can still get at it. Optional and additive - every
+  // existing catch site that only reads .status/.message is unaffected.
+  constructor(message: string, public status: number, public metaErrorCode?: number, public metaErrorSubcode?: number) {
     super(message);
   }
 }
@@ -36,7 +41,7 @@ export const fetchPhoneNumberDetails = async (
 
   if (!response.ok) {
     const message = body?.error?.message || `WhatsApp Cloud API request failed (${response.status})`;
-    throw new WhatsappGraphError(message, response.status === 401 || response.status === 403 ? 401 : 400);
+    throw new WhatsappGraphError(message, response.status === 401 || response.status === 403 ? 401 : 400, body?.error?.code, body?.error?.error_subcode);
   }
 
   return {
@@ -65,7 +70,7 @@ const graphGet = async (path: string, params: Record<string, string>): Promise<a
   const body = await response.json().catch(() => null);
   if (!response.ok || body?.error) {
     const message = body?.error?.message || `Meta Graph API request failed (${response.status})`;
-    throw new WhatsappGraphError(message, response.status === 401 || response.status === 403 ? 401 : 400);
+    throw new WhatsappGraphError(message, response.status === 401 || response.status === 403 ? 401 : 400, body?.error?.code, body?.error?.error_subcode);
   }
   return body;
 };
@@ -104,6 +109,28 @@ export interface BusinessDetails {
 export const fetchBusinessDetails = async (businessId: string, accessToken: string): Promise<BusinessDetails> => {
   const body = await graphGet(encodeURIComponent(businessId), { fields: 'name,verification_status', access_token: accessToken });
   return { name: body?.name ?? null, verificationStatus: body?.verification_status ?? null };
+};
+
+// Subscribes this app to receive webhook notifications (messages, delivery
+// status, quality updates) for the given WABA - Meta requires this explicit
+// call after Embedded Signup; it isn't automatic just because a phone number
+// was connected. POST with no body, per Meta's documented contract.
+export const subscribeToWebhooks = async (wabaId: string, accessToken: string): Promise<boolean> => {
+  const url = new URL(`${GRAPH_BASE_URL}/${GRAPH_API_VERSION}/${encodeURIComponent(wabaId)}/subscribed_apps`);
+  url.searchParams.set('access_token', accessToken);
+
+  let response: Response;
+  try {
+    response = await fetch(url.toString(), { method: 'POST' });
+  } catch (err: any) {
+    throw new WhatsappGraphError(`Unable to reach Meta Graph API: ${err.message || 'network error'}`, 502);
+  }
+  const body = await response.json().catch(() => null);
+  if (!response.ok || body?.error) {
+    const message = body?.error?.message || `Webhook subscription failed (${response.status})`;
+    throw new WhatsappGraphError(message, response.status === 401 || response.status === 403 ? 401 : 400);
+  }
+  return Boolean(body?.success);
 };
 
 export interface TokenDebugInfo {
