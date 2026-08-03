@@ -533,7 +533,7 @@ export default function WhatsappContacts() {
               <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-[var(--border)] px-6 py-12 text-center hover:border-blue-500">
                 <FileUp className="h-8 w-8 text-[var(--text-secondary)]" />
                 <span className="text-sm font-medium text-[var(--text-primary)]">Click to select a .csv or .xlsx file</span>
-                <span className="text-xs text-[var(--text-muted)]">Expected columns: Name, Phone, Country Code, Email, Company, Notes — any extra columns automatically become custom fields / message variables.</span>
+                <span className="text-xs text-[var(--text-muted)]">Expected columns: Name, Phone, Email, Company, Notes — any extra columns automatically become custom fields / message variables. Country Code is only required if your phone numbers don't already start with "+" (e.g. "+8801XXXXXXXXX" needs no separate Country Code column).</span>
                 <input type="file" accept=".csv,.xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFileSelected(f); }} />
               </label>
             </div>

@@ -84,9 +84,16 @@ export const parseImportFile = (buffer: Buffer, filename: string): { source: 'CS
 
   if (ext === 'csv') {
     const text = buffer.toString('utf8');
-    const parsed = Papa.parse<Record<string, any>>(text, { header: true, skipEmptyLines: false });
+    // Force the delimiter rather than letting Papa auto-detect it: Papa's
+    // auto-detection reports a `type: 'Delimiter'` error whenever its
+    // confidence is low even though it still successfully falls back to
+    // ',' and parses correctly (the message literally says "defaulted to
+    // ','") - treating that as fatal was blocking every CSV import whose
+    // content happened to look ambiguous to the detector (e.g. few rows,
+    // no repeated delimiter pattern), not actually malformed files.
+    const parsed = Papa.parse<Record<string, any>>(text, { header: true, skipEmptyLines: false, delimiter: ',' });
     if (parsed.errors?.length) {
-      const fatal = parsed.errors.find((e) => e.type === 'Delimiter' || e.type === 'Quotes');
+      const fatal = parsed.errors.find((e) => e.type === 'Quotes');
       if (fatal) throw new ContactImportError(`Failed to parse CSV: ${fatal.message}`, 400);
     }
     return { source: 'CSV', rows: normalizeHeaderRow(parsed.data) };
@@ -147,29 +154,49 @@ export const validateRows = async (workspaceId: string, rawRows: Record<string, 
       rows.push({ rowNumber, name, phoneNumber: rawPhone, countryCode: rawCountry, email, company, notes, status: 'invalid', reason: 'Missing phone number' });
       continue;
     }
-    if (!rawCountry || !COUNTRY_CODE_PATTERN.test(rawCountry)) {
-      rows.push({ rowNumber, name, phoneNumber: rawPhone, countryCode: rawCountry, email, company, notes, status: 'invalid', reason: 'Missing or invalid country code (use a 2-letter ISO code)' });
-      continue;
-    }
 
-    const parsed = parsePhoneNumberFromString(rawPhone, rawCountry as CountryCode);
+    // A phone number that already starts with "+" carries its own country
+    // calling code (e.g. +8801596310946) - libphonenumber-js can parse and
+    // validate it with no country hint at all. Only fall back to requiring
+    // a separate Country Code column for numbers with no "+" prefix, where
+    // there's genuinely no way to know which country's numbering plan to
+    // validate against. Most real-world export files only have a single
+    // "Phone" column with the full international number and no separate
+    // country column, which previously made every row fail here regardless
+    // of the phone numbers actually being valid.
+    const looksInternational = rawPhone.startsWith('+');
+    let parsed;
+    if (looksInternational) {
+      parsed = parsePhoneNumberFromString(rawPhone);
+    } else {
+      if (!rawCountry || !COUNTRY_CODE_PATTERN.test(rawCountry)) {
+        rows.push({ rowNumber, name, phoneNumber: rawPhone, countryCode: rawCountry, email, company, notes, status: 'invalid', reason: 'Missing or invalid country code (use a 2-letter ISO code), or include the country calling code in the phone number itself (e.g. +8801XXXXXXXXX)' });
+        continue;
+      }
+      parsed = parsePhoneNumberFromString(rawPhone, rawCountry as CountryCode);
+    }
     if (!parsed || !parsed.isValid()) {
       rows.push({ rowNumber, name, phoneNumber: rawPhone, countryCode: rawCountry, email, company, notes, status: 'invalid', reason: 'Invalid phone number' });
       continue;
     }
+    // Derive the ISO country from the parsed number when it wasn't supplied
+    // as a column (or trust the parsed result over a possibly-wrong manual
+    // one) - countryCode is a stored Contact field, so it must be populated
+    // either way for the commit step below.
+    const resolvedCountry = (parsed.country as string | undefined) || rawCountry;
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      rows.push({ rowNumber, name, phoneNumber: rawPhone, countryCode: rawCountry, email, company, notes, status: 'invalid', reason: 'Invalid email address' });
+      rows.push({ rowNumber, name, phoneNumber: rawPhone, countryCode: resolvedCountry, email, company, notes, status: 'invalid', reason: 'Invalid email address' });
       continue;
     }
 
     const normalizedPhone = parsed.number;
     if (seenInFile.has(normalizedPhone)) {
-      rows.push({ rowNumber, name, phoneNumber: rawPhone, countryCode: rawCountry, email, company, notes, status: 'duplicate', reason: 'Duplicate phone number within this file', normalizedPhone });
+      rows.push({ rowNumber, name, phoneNumber: rawPhone, countryCode: resolvedCountry, email, company, notes, status: 'duplicate', reason: 'Duplicate phone number within this file', normalizedPhone });
       continue;
     }
     seenInFile.add(normalizedPhone);
 
-    rows.push({ rowNumber, name, phoneNumber: rawPhone, countryCode: rawCountry, email, company, notes, customFields, status: 'valid', normalizedPhone });
+    rows.push({ rowNumber, name, phoneNumber: rawPhone, countryCode: resolvedCountry, email, company, notes, customFields, status: 'valid', normalizedPhone });
   }
 
   const candidatePhones = rows.filter((r) => r.status === 'valid').map((r) => r.normalizedPhone!) ;
