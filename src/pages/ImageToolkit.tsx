@@ -934,24 +934,24 @@ export default function ImageToolkit() {
           <EmptyState icon={ImageIcon} title="No image selected" description="Upload an image above to start converting, compressing, resizing, cropping, or watermarking it." />
         </>
       ) : (
-        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex h-[75vh] min-h-[560px] overflow-hidden rounded-[2rem] border border-[var(--border)] bg-[var(--panel-bg)] shadow-[var(--shadow-card)]">
-          {/* Tool rail */}
-          <div className="flex w-16 shrink-0 flex-col items-center gap-1 border-r border-[var(--border)] bg-[var(--surface)] py-4">
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="flex flex-col overflow-hidden rounded-[2rem] border border-[var(--border)] bg-[var(--panel-bg)] shadow-[var(--shadow-card)] lg:h-[75vh] lg:min-h-[560px] lg:flex-row">
+          {/* Tool rail - horizontal icon row on mobile, vertical rail from lg: up */}
+          <div className="flex w-full shrink-0 flex-row items-center gap-1 overflow-x-auto border-b border-[var(--border)] bg-[var(--surface)] px-2 py-2 lg:w-16 lg:flex-col lg:overflow-visible lg:border-b-0 lg:border-r lg:px-0 lg:py-4">
             {TOOLS.map((tool) => (
               <button
                 key={tool.id}
                 type="button"
                 title={tool.label}
                 onClick={() => setActiveTool(tool.id)}
-                className={`flex h-11 w-11 items-center justify-center rounded-2xl transition ${
-                  activeTool === tool.id ? 'bg-blue-500/15 text-blue-300 shadow-[0_10px_30px_rgba(59,130,246,0.18)]' : 'text-[var(--text-secondary)] hover:bg-[var(--panel-bg)] hover:text-[var(--text-primary)]'
+                className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl transition ${
+                  activeTool === tool.id ? 'bg-[var(--accent-bg)] text-[var(--accent-text)] shadow-[0_10px_30px_rgba(59,130,246,0.18)]' : 'text-[var(--text-secondary)] hover:bg-[var(--panel-bg)] hover:text-[var(--text-primary)]'
                 }`}
               >
                 <tool.icon className="h-5 w-5" />
               </button>
             ))}
-            <div className="mt-auto">
-              <button type="button" title="Add another image" onClick={() => fileInputRef.current?.click()} className="flex h-11 w-11 items-center justify-center rounded-2xl text-[var(--text-secondary)] transition hover:bg-[var(--panel-bg)] hover:text-[var(--text-primary)]">
+            <div className="lg:mt-auto">
+              <button type="button" title="Add another image" onClick={() => fileInputRef.current?.click()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl text-[var(--text-secondary)] transition hover:bg-[var(--panel-bg)] hover:text-[var(--text-primary)]">
                 <Plus className="h-5 w-5" />
               </button>
               <input
@@ -966,7 +966,7 @@ export default function ImageToolkit() {
           </div>
 
           {/* Canvas */}
-          <div className="flex min-w-0 flex-1 flex-col">
+          <div className="flex min-h-[50vh] min-w-0 flex-1 flex-col lg:min-h-0">
             <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-2.5">
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{activeImage.originalFilename}</p>
@@ -1071,9 +1071,10 @@ export default function ImageToolkit() {
             )}
           </div>
 
-          {/* Settings panel */}
-          <div className="flex w-80 shrink-0 flex-col border-l border-[var(--border)]">
-            <div className="flex-1 space-y-5 overflow-y-auto p-4">
+          {/* Settings panel - full-width block below the canvas on mobile,
+              fixed 320px right rail from lg: up */}
+          <div className="flex w-full shrink-0 flex-col border-t border-[var(--border)] lg:w-80 lg:border-l lg:border-t-0">
+            <div className="max-h-[50vh] flex-1 space-y-5 overflow-y-auto p-4 lg:max-h-none">
               <div className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
                 {(() => {
                   const ToolIcon = TOOLS.find((t) => t.id === activeTool)?.icon || Wand2;
@@ -1337,7 +1338,7 @@ export default function ImageToolkit() {
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">Processing history</h2>
         <div className="mt-4">
           {jobsLoading ? (
-            <p className="text-sm text-[var(--text-muted)]">Loading…</p>
+            <p className="flex items-center gap-2 text-sm text-[var(--text-muted)]"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>
           ) : jobs.length === 0 ? (
             <EmptyState icon={Images} title="No processed images yet" description="Images you process above will appear here with quick download and delete actions." />
           ) : (
@@ -1346,8 +1347,12 @@ export default function ImageToolkit() {
                 <motion.div key={job.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.02 }} className="flex flex-col gap-3 rounded-[1.5rem] border border-[var(--border)] bg-[var(--panel-bg)] p-4 transition hover:border-[var(--border-strong)] hover:bg-[var(--surface)] md:flex-row md:items-center md:justify-between">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-semibold text-[var(--text-primary)]">{job.originalFilename}</p>
-                    <p className="text-xs text-[var(--text-muted)]">
-                      {job.inputFormat.toUpperCase()} → {(job.outputFormat || job.inputFormat).toUpperCase()} • {formatBytes(job.fileSizeBytes)} • {job.status}
+                    <p className="flex flex-wrap items-center gap-1 text-xs text-[var(--text-muted)]">
+                      {job.inputFormat.toUpperCase()} → {(job.outputFormat || job.inputFormat).toUpperCase()} • {formatBytes(job.fileSizeBytes)} •
+                      <span className="inline-flex items-center gap-1">
+                        {(job.status === 'QUEUED' || job.status === 'PROCESSING') && <Loader2 className="h-3 w-3 animate-spin" />}
+                        {job.status}
+                      </span>
                     </p>
                   </div>
                   <div className="flex gap-2">

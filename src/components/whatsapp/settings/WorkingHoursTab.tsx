@@ -70,7 +70,7 @@ export function WorkingHoursTab() {
               <CardTitle className="text-lg">Business hours</CardTitle>
             </div>
             <label className="flex items-center gap-2 text-sm text-[var(--text-secondary)]">
-              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="h-5 w-5 rounded-md border border-[var(--border)] accent-blue-500" />
+              <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} className="h-5 w-5 rounded-md border border-[var(--border)] accent-[var(--accent)]" />
               Enforce working hours
             </label>
           </div>
@@ -79,26 +79,38 @@ export function WorkingHoursTab() {
           {DAYS.map((day) => {
             const window = schedule[day.key];
             return (
-              <div key={day.key} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 rounded-2xl border border-[var(--border)] px-4 py-3 sm:grid-cols-[140px_auto_1fr_1fr]">
-                <span className="text-sm font-medium text-[var(--text-primary)]">{day.label}</span>
-                <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-                  <input type="checkbox" checked={window.enabled} onChange={(e) => updateDay(day.key, { enabled: e.target.checked })} className="h-4 w-4 rounded border border-[var(--border)] accent-blue-500" />
-                  Enabled
-                </label>
-                <input
-                  type="time"
-                  value={window.start}
-                  disabled={!window.enabled}
-                  onChange={(e) => updateDay(day.key, { start: e.target.value })}
-                  className="input-field rounded-xl px-3 py-2 text-sm disabled:opacity-50"
-                />
-                <input
-                  type="time"
-                  value={window.end}
-                  disabled={!window.enabled}
-                  onChange={(e) => updateDay(day.key, { end: e.target.value })}
-                  className="input-field rounded-xl px-3 py-2 text-sm disabled:opacity-50"
-                />
+              // Mobile (below sm:): 2 stacked rows (day+toggle, then both time
+              // pickers side by side) - the old single-row 4-column grid put
+              // native <input type="time"> (which has a non-shrinkable
+              // intrinsic width) into `auto` tracks, forcing horizontal
+              // scroll on 320-375px screens. From sm: up, `sm:contents` on
+              // the two wrapper divs makes them disappear from layout so
+              // their 4 children resume acting as direct grid items in the
+              // original [140px_auto_1fr_1fr] row, unchanged from before.
+              <div key={day.key} className="flex flex-col gap-2 rounded-2xl border border-[var(--border)] px-4 py-3 sm:grid sm:grid-cols-[140px_auto_1fr_1fr] sm:items-center sm:gap-3">
+                <div className="flex items-center justify-between sm:contents">
+                  <span className="text-sm font-medium text-[var(--text-primary)]">{day.label}</span>
+                  <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+                    <input type="checkbox" checked={window.enabled} onChange={(e) => updateDay(day.key, { enabled: e.target.checked })} className="h-4 w-4 rounded border border-[var(--border)] accent-[var(--accent)]" />
+                    Enabled
+                  </label>
+                </div>
+                <div className="grid grid-cols-2 gap-2 sm:contents">
+                  <input
+                    type="time"
+                    value={window.start}
+                    disabled={!window.enabled}
+                    onChange={(e) => updateDay(day.key, { start: e.target.value })}
+                    className="input-field w-full rounded-xl px-3 py-2 text-sm disabled:opacity-50"
+                  />
+                  <input
+                    type="time"
+                    value={window.end}
+                    disabled={!window.enabled}
+                    onChange={(e) => updateDay(day.key, { end: e.target.value })}
+                    className="input-field w-full rounded-xl px-3 py-2 text-sm disabled:opacity-50"
+                  />
+                </div>
               </div>
             );
           })}

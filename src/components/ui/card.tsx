@@ -5,7 +5,13 @@ const Card = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElemen
   <div
     ref={ref}
     className={cn(
-      "rounded-xl border bg-[var(--surface)] text-[var(--text-primary)] shadow-sm border-[var(--border)]",
+      // shadow-[var(--shadow-card)] (not the generic Tailwind shadow-sm this
+      // used to have) is what actually separates a card from the page
+      // background - shadow-sm is nearly invisible against the light-mode
+      // surface colors, which is why cards "blended into the background."
+      // border-strong (not the softer default border) reinforces the edge
+      // in both themes without introducing any new color.
+      "rounded-xl border border-[var(--border-strong)] bg-[var(--surface)] text-[var(--text-primary)] shadow-[var(--shadow-card)]",
       className
     )}
     {...props}

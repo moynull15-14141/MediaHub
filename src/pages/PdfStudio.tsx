@@ -1110,6 +1110,7 @@ export default function PdfStudio() {
           <div className="space-y-4">
             <div className="flex items-center justify-between text-sm">
               <span className={cn('inline-flex items-center gap-2 rounded-full border px-3 py-1 font-medium', STATUS_STYLES[activeJob.status])}>
+                {(activeJob.status === 'QUEUED' || activeJob.status === 'PROCESSING') && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 {activeJob.status === 'COMPLETED' && <CheckCircle2 className="h-3.5 w-3.5" />}
                 {activeJob.status === 'FAILED' && <AlertCircle className="h-3.5 w-3.5" />}
                 {activeJob.status}
@@ -1143,7 +1144,7 @@ export default function PdfStudio() {
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">PDF job history</h2>
         <div className="mt-4">
           {jobsLoading ? (
-            <p className="text-sm text-[var(--text-muted)]">Loading…</p>
+            <p className="flex items-center gap-2 text-sm text-[var(--text-muted)]"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>
           ) : jobs.length === 0 ? (
             <EmptyState icon={FileStack} title="No PDF jobs yet" description="Files you process will be tracked here with status and download actions." />
           ) : (
@@ -1169,7 +1170,10 @@ const JobRow: React.FC<{ job: PdfJob; onDownload: (id: string) => void; onDelete
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <p className="truncate text-base font-semibold text-[var(--text-primary)]">{job.originalFilename}</p>
-            <span className={cn('rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.2em]', STATUS_STYLES[job.status])}>{job.status}</span>
+            <span className={cn('inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.2em]', STATUS_STYLES[job.status])}>
+              {(job.status === 'QUEUED' || job.status === 'PROCESSING') && <Loader2 className="h-3 w-3 animate-spin" />}
+              {job.status}
+            </span>
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-3 text-sm text-[var(--text-muted)]">
             <span className="flex items-center gap-1"><Clock3 className="h-3.5 w-3.5" /> {TOOL_LABEL[job.operation]}</span>

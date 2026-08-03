@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, Navigate } from 'react-router-dom';
 import { Lock, Mail, UserPlus } from 'lucide-react';
 import { useAuth } from '@/src/components/auth/AuthContext';
 import { Input } from '@/src/components/ui/input';
@@ -8,7 +8,7 @@ import { getApiBase } from '@/src/lib/api';
 
 export default function Register() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, token, initializing } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -43,6 +43,10 @@ export default function Register() {
       setIsLoading(false);
     }
   };
+
+  // See Login.tsx for why this waits on `initializing` before deciding.
+  if (initializing) return null;
+  if (token) return <Navigate to="/" replace />;
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-8">

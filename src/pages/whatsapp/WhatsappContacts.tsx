@@ -539,7 +539,7 @@ export default function WhatsappContacts() {
             </div>
           ) : (
             <div className="space-y-4">
-              <div className="grid grid-cols-4 gap-3 text-center">
+              <div className="grid grid-cols-2 gap-3 text-center sm:grid-cols-4">
                 <div className="rounded-2xl bg-emerald-500/10 px-3 py-3"><p className="text-lg font-semibold text-emerald-300">{importPreview.summary.valid}</p><p className="text-xs text-emerald-200/80">Will import</p></div>
                 <div className="rounded-2xl bg-amber-500/10 px-3 py-3"><p className="text-lg font-semibold text-amber-300">{importPreview.summary.duplicate}</p><p className="text-xs text-amber-200/80">Duplicate</p></div>
                 <div className="rounded-2xl bg-rose-500/10 px-3 py-3"><p className="text-lg font-semibold text-rose-300">{importPreview.summary.invalid}</p><p className="text-xs text-rose-200/80">Invalid</p></div>

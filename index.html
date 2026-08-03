@@ -5,6 +5,27 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MediaHub</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <!--
+      Theme bootstrap: applies the saved light/dark choice to <html> BEFORE
+      the app mounts or any CSS paints. Without this, the theme was only
+      ever set from Settings.tsx's mount effect, so a Light-mode user
+      reloading on any other page saw the hardcoded dark :root defaults
+      flash until (if ever) they visited Settings again. Must stay a plain
+      inline script (not a module, not deferred) so it runs synchronously
+      before first paint - matches the 'mediahub-theme' key Settings.tsx
+      reads/writes (see src/hooks/useTheme.ts, the single source of truth
+      for that key on the React side).
+    -->
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('mediahub-theme');
+          document.documentElement.dataset.theme = theme === 'light' ? 'light' : 'dark';
+        } catch (e) {
+          document.documentElement.dataset.theme = 'dark';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

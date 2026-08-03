@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { DownloadCloud, History, Menu, Settings, ShieldCheck, X, LogIn, LogOut, Key, Film, ImageIcon, FileStack, Wand2, MessageCircle, LayoutDashboard, Smartphone, Users, FolderKanban, Tag, ChevronDown, Megaphone, LayoutTemplate, BarChart3 } from 'lucide-react';
 import { useAuth } from '@/src/components/auth/AuthContext';
@@ -26,6 +26,18 @@ export function AppLayout() {
   const location = useLocation();
   const navigate = useNavigate();
   const { token, user, logout } = useAuth();
+
+  // The mobile nav drawer already closes on backdrop click; Escape was
+  // missing (Dialog, elsewhere in this UI kit, already handles this - the
+  // drawer should behave the same way for keyboard users).
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [mobileOpen]);
   const navItems: NavEntry[] = [
     { to: '/', icon: DownloadCloud, label: 'Downloader' },
     { to: '/converter', icon: Film, label: 'Converter' },
@@ -55,7 +67,12 @@ export function AppLayout() {
   const leafClassName = (isActive: boolean) => cn(
     'flex items-center gap-3 rounded-3xl px-4 py-3 text-sm font-semibold transition-all duration-200',
     isActive
-      ? 'bg-blue-500/10 text-blue-300 shadow-[0_20px_60px_rgba(59,130,246,0.18)] backdrop-blur text-[var(--text-primary)]'
+      // --accent-bg (theme-varied token) replaces the old hardcoded
+      // bg-blue-500/10 text-blue-300 - the text-blue-300 was dead code
+      // anyway (text-[var(--text-primary)] right after it always won),
+      // and the hardcoded blue meant this couldn't be retuned from one
+      // place. Also fixes light-mode legibility of the active item.
+      ? 'bg-[var(--accent-bg)] text-[var(--text-primary)] shadow-[0_20px_60px_rgba(59,130,246,0.18)] backdrop-blur'
       : 'text-[var(--text-secondary)] hover:bg-[var(--panel-bg)] hover:text-[var(--text-primary)]'
   );
 
@@ -89,7 +106,7 @@ export function AppLayout() {
                       to={child.to}
                       end={child.to === '/whatsapp'}
                       onClick={() => setMobileOpen(false)}
-                      className={({ isActive }) => cn('flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition-all duration-200', isActive ? 'bg-blue-500/10 text-blue-300 text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--panel-bg)] hover:text-[var(--text-primary)]')}
+                      className={({ isActive }) => cn('flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium transition-all duration-200', isActive ? 'bg-[var(--accent-bg)] text-[var(--text-primary)]' : 'text-[var(--text-secondary)] hover:bg-[var(--panel-bg)] hover:text-[var(--text-primary)]')}
                     >
                       <child.icon className="h-4 w-4" />
                       <span>{child.label}</span>

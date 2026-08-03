@@ -42,6 +42,33 @@
   --input-placeholder: rgba(249, 250, 251, 0.6);
   --panel-bg: rgba(255, 255, 255, 0.04);
   --glass: rgba(255, 255, 255, 0.08);
+  /* Accent token - names the brand blue already used throughout the app
+     (button gradient, active nav, badges) so those call sites can reference
+     one variable instead of hardcoding blue-500/blue-300, and so the shade
+     can differ per theme where contrast requires it (see light override
+     below: --accent-text is darker there for AA contrast on white). */
+  --accent: #3B82F6;
+  --accent-bg: rgba(59, 130, 246, 0.1);
+  --accent-text: #93C5FD;
+  --accent-ring: rgba(59, 130, 246, 0.35);
+  /* Named radius scale documenting the sizes already in use across Button/
+     Input/Dialog/Table/etc - not a value change, just giving the existing
+     scale shared names so new/edited components stop inventing new ones. */
+  --radius-sm: 16px;
+  --radius-md: 18px;
+  --radius-lg: 24px;
+  /* Badge status colors - the light-300/text-on-dark-500/10-bg combination
+     reads fine on dark surfaces but is low-contrast on the light theme's
+     near-white surfaces, so each status gets its own theme-varied pair
+     rather than one fixed Tailwind shade used in both themes. */
+  --badge-info-bg: rgba(59, 130, 246, 0.1);
+  --badge-info-text: #93C5FD;
+  --badge-success-bg: rgba(16, 185, 129, 0.1);
+  --badge-success-text: #6EE7B7;
+  --badge-warning-bg: rgba(245, 158, 11, 0.1);
+  --badge-warning-text: #FCD34D;
+  --badge-danger-bg: rgba(244, 63, 94, 0.1);
+  --badge-danger-text: #FDA4AF;
 }
 
 html[data-theme='light'] {
@@ -65,6 +92,18 @@ html[data-theme='light'] {
   --input-placeholder: #94A3B8;
   --panel-bg: #F8FAFC;
   --glass: rgba(255, 255, 255, 0.72);
+  --accent: #2563EB;
+  --accent-bg: rgba(37, 99, 235, 0.08);
+  --accent-text: #1D4ED8;
+  --accent-ring: rgba(37, 99, 235, 0.35);
+  --badge-info-bg: rgba(37, 99, 235, 0.08);
+  --badge-info-text: #1D4ED8;
+  --badge-success-bg: rgba(5, 150, 105, 0.1);
+  --badge-success-text: #047857;
+  --badge-warning-bg: rgba(217, 119, 6, 0.1);
+  --badge-warning-text: #B45309;
+  --badge-danger-bg: rgba(225, 29, 72, 0.1);
+  --badge-danger-text: #BE123C;
 }
 
 html {

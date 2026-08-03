@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Pause, Play, Ban, Clock3, Gauge, Hourglass } from 'lucide-react';
+import { Pause, Play, Ban, Clock3, Gauge, Hourglass, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/src/components/ui/dialog';
 import { Button } from '@/src/components/ui/button';
 import { Badge } from '@/src/components/ui/badge';
@@ -137,7 +137,12 @@ export function CampaignProgressDialog({ open, campaignId, campaignName, onClose
       <DialogContent className="max-h-[90vh]">
         <DialogHeader>
           <DialogTitle>{campaignName || 'Campaign progress'}</DialogTitle>
-          {progress && <Badge variant={sendStatusVariant(progress.sendStatus) as any}>{progress.sendStatus}</Badge>}
+          {progress && (
+            <Badge variant={sendStatusVariant(progress.sendStatus) as any}>
+              {(progress.sendStatus === 'SENDING' || progress.sendStatus === 'QUEUED') && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+              {progress.sendStatus}
+            </Badge>
+          )}
         </DialogHeader>
 
         {!progress ? (

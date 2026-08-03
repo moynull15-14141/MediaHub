@@ -3,29 +3,21 @@ import { motion } from 'motion/react';
 import { Clock3, Moon, Sun, ShieldCheck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/src/components/ui/card';
 import { Button } from '@/src/components/ui/button';
+import { useTheme } from '@/src/hooks/useTheme';
 
-const themeKey = 'mediahub-theme';
 const historyDaysKey = 'mediahub-history-days';
 
 export default function Settings() {
-  const [theme, setTheme] = useState<'light' | 'dark'>('dark');
+  const { theme, setTheme } = useTheme();
   const [autoDeleteDays, setAutoDeleteDays] = useState(30);
   const [saved, setSaved] = useState(false);
 
-  const applyTheme = (mode: 'light' | 'dark') => {
-    document.documentElement.dataset.theme = mode;
-    setTheme(mode);
-  };
-
   useEffect(() => {
-    const storedTheme = (localStorage.getItem(themeKey) as 'light' | 'dark') || 'dark';
     const storedDays = Number(localStorage.getItem(historyDaysKey)) || 30;
     setAutoDeleteDays(storedDays);
-    applyTheme(storedTheme);
   }, []);
 
   const handleSave = () => {
-    localStorage.setItem(themeKey, theme);
     localStorage.setItem(historyDaysKey, String(autoDeleteDays));
     setSaved(true);
     window.setTimeout(() => setSaved(false), 1800);
@@ -54,10 +46,10 @@ export default function Settings() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-3">
-                <Button variant={theme === 'light' ? 'default' : 'outline'} onClick={() => applyTheme('light')} className="rounded-2xl px-4 py-2">
+                <Button variant={theme === 'light' ? 'default' : 'outline'} onClick={() => setTheme('light')} className="rounded-2xl px-4 py-2">
                   <Sun className="mr-2 h-4 w-4" /> Day mode
                 </Button>
-                <Button variant={theme === 'dark' ? 'default' : 'outline'} onClick={() => applyTheme('dark')} className="rounded-2xl px-4 py-2">
+                <Button variant={theme === 'dark' ? 'default' : 'outline'} onClick={() => setTheme('dark')} className="rounded-2xl px-4 py-2">
                   <Moon className="mr-2 h-4 w-4" /> Night mode
                 </Button>
               </div>
@@ -103,7 +95,7 @@ export default function Settings() {
             </div>
             <div className="flex flex-wrap gap-3">
               <Button variant="default" className="px-6 py-3" onClick={handleSave}>Save settings</Button>
-              <Button variant="outline" className="border-[var(--border)] bg-[var(--panel-bg)] text-[var(--text-primary)] hover:bg-[var(--surface)]" onClick={() => applyTheme(theme)}>
+              <Button variant="outline" className="border-[var(--border)] bg-[var(--panel-bg)] text-[var(--text-primary)] hover:bg-[var(--surface)]" onClick={() => setTheme(theme)}>
                 Apply now
               </Button>
             </div>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'motion/react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, Navigate } from 'react-router-dom';
 import { Lock, Mail, ArrowLeftCircle } from 'lucide-react';
 import { useAuth } from '@/src/components/auth/AuthContext';
 import { Input } from '@/src/components/ui/input';
@@ -8,7 +8,7 @@ import { getApiBase } from '@/src/lib/api';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, token, initializing } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -38,6 +38,14 @@ export default function Login() {
       setIsLoading(false);
     }
   };
+
+  // Wait for AuthContext's one-time localStorage check before deciding -
+  // otherwise an already-logged-in user hard-refreshing on /login would
+  // briefly see the form render (token still the useState(null) default)
+  // before this redirect kicks in. Once resolved, an authenticated user is
+  // bounced straight back rather than being able to sit on the login screen.
+  if (initializing) return null;
+  if (token) return <Navigate to="/" replace />;
 
   return (
     <div className="min-h-screen flex items-center justify-center px-4 py-8">

@@ -13,6 +13,8 @@ interface DialogProps {
 // Hand-rolled modal (no Radix in this repo) matching the rounded/var(--*)
 // styling of the rest of the UI kit. Escape + backdrop click both close.
 export function Dialog({ open, onClose, children, className }: DialogProps) {
+  const panelRef = React.useRef<HTMLDivElement>(null)
+
   React.useEffect(() => {
     if (!open) return
     const onKeyDown = (e: KeyboardEvent) => {
@@ -22,12 +24,31 @@ export function Dialog({ open, onClose, children, className }: DialogProps) {
     return () => document.removeEventListener("keydown", onKeyDown)
   }, [open, onClose])
 
+  // Move focus into the dialog on open so keyboard/screen-reader users
+  // aren't left tabbing through the page behind it, and restore focus to
+  // whatever triggered the dialog on close - standard modal a11y behavior
+  // this hand-rolled implementation was previously missing entirely.
+  React.useEffect(() => {
+    if (!open) return
+    const previouslyFocused = document.activeElement as HTMLElement | null
+    panelRef.current?.focus()
+    return () => previouslyFocused?.focus?.()
+  }, [open])
+
   if (!open) return null
 
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className={cn("relative w-full max-w-lg", className)}>{children}</div>
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
+        className={cn("relative w-full max-w-lg outline-none", className)}
+      >
+        {children}
+      </div>
     </div>,
     document.body
   )
@@ -68,7 +89,7 @@ function DialogCloseButton({ onClose }: { onClose: () => void }) {
       type="button"
       onClick={onClose}
       aria-label="Close dialog"
-      className="rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] p-2 text-[var(--text-secondary)] transition hover:text-[var(--text-primary)]"
+      className="rounded-2xl border border-[var(--border)] bg-[var(--panel-bg)] p-2 text-[var(--text-secondary)] transition hover:text-[var(--text-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)] focus-visible:ring-offset-2"
     >
       <X className="h-4 w-4" />
     </button>

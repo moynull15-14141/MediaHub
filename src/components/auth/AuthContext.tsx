@@ -10,6 +10,12 @@ interface AuthContextValue extends AuthState {
   login: (token: string, user: AuthState['user']) => void;
   logout: () => void;
   setUser: (user: AuthState['user']) => void;
+  // True only until the initial localStorage hydration check has run (one
+  // synchronous effect, not the async /refresh call). RequireAuth must wait
+  // for this before deciding to redirect to /login - otherwise it redirects
+  // during the one render where `token` is still its useState(null) default,
+  // even though a valid session exists in localStorage (the login-flash bug).
+  initializing: boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -31,6 +37,7 @@ const readCsrfCookie = (): string | undefined => {
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(null);
   const [user, setUserState] = useState<AuthState['user']>(null);
+  const [initializing, setInitializing] = useState(true);
   const refreshTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const applySession = (newToken: string, userData: AuthState['user']) => {
@@ -70,9 +77,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setUserState(null);
       }
     }
-    // The stored access token may already be stale (15-minute lifetime)
-    // while the HttpOnly refresh cookie can still be valid - always try to
-    // silently mint a fresh one on load rather than waiting for a 401.
+    // Hydration from localStorage is synchronous and complete as of this
+    // line - safe for RequireAuth to make a redirect decision now. The
+    // access token may already be stale (15-minute lifetime) while the
+    // HttpOnly refresh cookie can still be valid, so a silent refresh still
+    // kicks off in the background below, but it must NOT gate `initializing`
+    // - blocking every protected page behind a network round-trip (instead
+    // of just a synchronous localStorage read) would trade a one-frame flash
+    // for a much longer, more visible blank/loading screen on every load.
+    setInitializing(false);
     if (storedToken) {
       tryRefresh();
     }
@@ -98,6 +111,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     applySession(newToken, userData);
   };
 
+  // Used after in-place profile edits (e.g. Profile.tsx's display-name save)
+  // to update the current session's user data. Must persist to localStorage,
+  // not just React state - otherwise the change appears to "not save" on the
+  // next page load/refresh, when the mount effect below re-reads the stale
+  // cached user before the periodic token refresh has a chance to correct it.
+  const setUser = (userData: AuthState['user']) => {
+    setUserState(userData);
+    if (userData) {
+      localStorage.setItem('mediahub-user', JSON.stringify(userData));
+    } else {
+      localStorage.removeItem('mediahub-user');
+    }
+  };
+
   const logout = () => {
     setToken(null);
     setUserState(null);
@@ -114,8 +141,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const value = useMemo(
-    () => ({ token, user, login, logout, setUser: setUserState }),
-    [token, user]
+    () => ({ token, user, login, logout, setUser, initializing }),
+    [token, user, initializing]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

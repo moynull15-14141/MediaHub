@@ -550,7 +550,7 @@ export default function Converter() {
               <div className="space-y-4">
                 <div className="flex items-center justify-between text-sm">
                   <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 font-medium ${STATUS_STYLES[activeJob.status]}`}>
-                    {activeJob.status === 'CONVERTING' && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    {(activeJob.status === 'QUEUED' || activeJob.status === 'CONVERTING') && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     {activeJob.status === 'COMPLETED' && <CheckCircle2 className="h-3.5 w-3.5" />}
                     {activeJob.status === 'FAILED' && <AlertCircle className="h-3.5 w-3.5" />}
                     {activeJob.status}
@@ -593,7 +593,7 @@ export default function Converter() {
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">Conversion history</h2>
         <div className="mt-4">
           {jobsLoading ? (
-            <p className="text-sm text-[var(--text-muted)]">Loading…</p>
+            <p className="flex items-center gap-2 text-sm text-[var(--text-muted)]"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</p>
           ) : jobs.length === 0 ? (
             <EmptyState icon={Film} title="No conversions yet" description="Upload a video above to see it tracked here with live status and download actions." />
           ) : (
@@ -607,7 +607,10 @@ export default function Converter() {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="truncate text-base font-semibold text-[var(--text-primary)]">{job.originalFilename}</p>
-                        <span className={`rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.2em] ${STATUS_STYLES[job.status]}`}>{job.status}</span>
+                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.2em] ${STATUS_STYLES[job.status]}`}>
+                          {(job.status === 'QUEUED' || job.status === 'CONVERTING') && <Loader2 className="h-3 w-3 animate-spin" />}
+                          {job.status}
+                        </span>
                       </div>
                       <div className="mt-2 flex flex-wrap gap-3 text-sm text-[var(--text-muted)]">
                         <span>{job.inputFormat.toUpperCase()} → {(job.outputFormat || job.inputFormat).toUpperCase()}</span>

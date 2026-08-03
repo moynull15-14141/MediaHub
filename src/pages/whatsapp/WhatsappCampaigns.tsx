@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'motion/react';
-import { Megaphone, Plus, Pencil, Copy, Archive, Trash2, Search, ChevronLeft, ChevronRight, Send, Activity } from 'lucide-react';
+import { Megaphone, Plus, Pencil, Copy, Archive, Trash2, Search, ChevronLeft, ChevronRight, Send, Activity, Loader2 } from 'lucide-react';
 import { Button } from '@/src/components/ui/button';
 import { Input } from '@/src/components/ui/input';
 import { Select } from '@/src/components/ui/select';
@@ -180,7 +180,10 @@ export default function WhatsappCampaigns() {
                     <div className="flex flex-wrap gap-1">
                       <Badge variant={statusVariant(campaign.status)}>{campaign.status}</Badge>
                       {campaign.sendStatus !== 'NOT_STARTED' && (
-                        <Badge variant={sendStatusVariant(campaign.sendStatus) as any}>{campaign.sendStatus}</Badge>
+                        <Badge variant={sendStatusVariant(campaign.sendStatus) as any}>
+                          {(campaign.sendStatus === 'SENDING' || campaign.sendStatus === 'QUEUED') && <Loader2 className="mr-1 h-3 w-3 animate-spin" />}
+                          {campaign.sendStatus}
+                        </Badge>
                       )}
                     </div>
                   </TableCell>
