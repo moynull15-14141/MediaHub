@@ -15,6 +15,7 @@ import PdfStudio from './pages/PdfStudio';
 import Settings from './pages/Settings';
 import Login from './pages/Login';
 import Register from './pages/Register';
+import Profile from './pages/Profile';
 import CookieUpload from './pages/CookieUpload';
 import WhatsappDashboard from './pages/whatsapp/WhatsappDashboard';
 import WhatsappCampaigns from './pages/whatsapp/WhatsappCampaigns';
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="settings" element={<Settings />} />
           <Route path="cookies" element={<CookieUpload />} />
           <Route element={<RequireAuth />}>
+            <Route path="profile" element={<Profile />} />
             <Route path="whatsapp" element={<WhatsappDashboard />} />
             <Route path="whatsapp/campaigns" element={<WhatsappCampaigns />} />
             <Route path="whatsapp/templates" element={<WhatsappTemplates />} />

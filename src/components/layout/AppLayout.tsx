@@ -151,7 +151,12 @@ export function AppLayout() {
             <div className="flex items-center gap-3">
               {token ? (
                 <>
-                  <span className="rounded-full border border-[var(--border)] bg-[var(--panel-bg)] px-3 py-1 text-xs text-[var(--text-secondary)]">{user?.email}</span>
+                  <button
+                    className="rounded-full border border-[var(--border)] bg-[var(--panel-bg)] px-3 py-1 text-xs text-[var(--text-secondary)] transition hover:text-[var(--text-primary)]"
+                    onClick={() => navigate('/profile')}
+                  >
+                    {user?.name || user?.email}
+                  </button>
                   <button
                     className="inline-flex items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface)]/90 px-3 py-2 text-xs font-medium text-[var(--text-primary)] transition hover:bg-[var(--panel-bg)]"
                     onClick={() => {

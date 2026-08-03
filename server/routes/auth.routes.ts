@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { register, login, whoami, refresh, logout, logoutAll, loginHistoryHandler, uploadCookies } from '../controllers/auth.controller';
+import { register, login, whoami, refresh, logout, logoutAll, loginHistoryHandler, uploadCookies, updateProfileHandler, changePasswordHandler } from '../controllers/auth.controller';
 import { authRateLimiter } from '../middleware/security.middleware';
 import { requireCsrfToken } from '../middleware/csrf.middleware';
 
@@ -16,5 +16,7 @@ router.post('/logout', requireCsrfToken, logout);
 router.post('/logout-all', logoutAll);
 router.get('/login-history', loginHistoryHandler);
 router.post('/cookies', uploadCookies);
+router.patch('/profile', updateProfileHandler);
+router.post('/change-password', authRateLimiter, changePasswordHandler);
 
 export default router;

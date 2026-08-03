@@ -23,11 +23,16 @@ const CSRF_HEADER_NAME = 'x-csrf-token';
 
 export const generateCsrfToken = (): string => crypto.randomBytes(24).toString('base64url');
 
-export const setCsrfCookie = (res: Response, token: string, path: string, maxAgeMs: number): void => {
+// secure/sameSite must match the paired refresh cookie's (auth.controller.ts's
+// setRefreshCookie derives `secure` from the real connection - req.secure -
+// and passes it through here) - a browser that won't store a Secure refresh
+// cookie over plain http won't store a Secure CSRF cookie either, and
+// SameSite=None is invalid without Secure regardless.
+export const setCsrfCookie = (res: Response, token: string, path: string, maxAgeMs: number, secure: boolean): void => {
   res.cookie(CSRF_COOKIE_NAME, token, {
     httpOnly: false,
-    secure: true,
-    sameSite: 'none',
+    secure,
+    sameSite: secure ? 'none' : 'lax',
     path,
     maxAge: maxAgeMs,
   });

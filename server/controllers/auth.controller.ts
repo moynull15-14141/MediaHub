@@ -11,6 +11,9 @@ import {
   revokeRefreshToken,
   revokeAllRefreshTokensForUser,
   tokenLifetimeSeconds,
+  updateUserName,
+  changeUserPassword,
+  ProfileError,
 } from '../services/user.service';
 import { recordAuthEvent, isLockedOut, listLoginHistory } from '../services/auth-log.service';
 import { config } from '../lib/config';
@@ -31,15 +34,29 @@ const REFRESH_COOKIE_PATH = '/api/auth';
 // (/, /whatsapp/*, ...), none of which fall under /api/auth, so a cookie
 // scoped there would never actually be readable by the frontend JS that
 // needs to send it back as the X-CSRF-Token header.
-const setRefreshCookie = (res: Response, token: string) => {
+//
+// secure/sameSite are derived from the ACTUAL connection (req.secure, which
+// correctly reflects X-Forwarded-Proto once trust proxy is set) rather than
+// hardcoded - browsers silently refuse to store a `Secure` cookie at all
+// over a plain http:// origin (this is standard, unconditional browser
+// behavior, not a bug in this app). Hardcoding secure:true unconditionally
+// meant the refresh/CSRF cookies were never actually stored when this app is
+// served over plain HTTP (e.g. a local/self-hosted deployment with no TLS-
+// terminating proxy in front) - every silent refresh then failed CSRF
+// validation (missing cookie) with 403, the access token was never renewed,
+// and every subsequent authenticated request failed with 401 once it expired.
+// SameSite=None is only valid (and only needed, for a cross-origin
+// frontend/backend split) when secure - same-origin http deployments use Lax.
+const setRefreshCookie = (req: Request, res: Response, token: string) => {
+  const secure = req.secure;
   res.cookie(REFRESH_COOKIE_NAME, token, {
     httpOnly: true,
-    secure: true,
-    sameSite: 'none',
+    secure,
+    sameSite: secure ? 'none' : 'lax',
     path: REFRESH_COOKIE_PATH,
     maxAge: tokenLifetimeSeconds * 1000,
   });
-  setCsrfCookie(res, generateCsrfToken(), '/', tokenLifetimeSeconds * 1000);
+  setCsrfCookie(res, generateCsrfToken(), '/', tokenLifetimeSeconds * 1000, secure);
 };
 
 const clearRefreshCookie = (res: Response) => {
@@ -65,9 +82,9 @@ export const register = async (req: Request, res: Response) => {
     const user = await registerUser(email, password);
     const token = createAuthToken(user);
     const refreshToken = await createRefreshToken(user.id);
-    setRefreshCookie(res, refreshToken);
+    setRefreshCookie(req, res, refreshToken);
     void recordAuthEvent(req, 'REGISTER', user.email, user.id);
-    res.json({ token, user: { id: user.id, email: user.email, createdAt: user.createdAt } });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, createdAt: user.createdAt } });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Registration failed' });
   }
@@ -95,9 +112,9 @@ export const login = async (req: Request, res: Response) => {
     }
     const token = createAuthToken(user);
     const refreshToken = await createRefreshToken(user.id);
-    setRefreshCookie(res, refreshToken);
+    setRefreshCookie(req, res, refreshToken);
     void recordAuthEvent(req, 'LOGIN', user.email, user.id);
-    res.json({ token, user: { id: user.id, email: user.email, createdAt: user.createdAt } });
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, createdAt: user.createdAt } });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Login failed' });
   }
@@ -119,7 +136,7 @@ export const whoami = async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'User not found' });
   }
 
-  res.json({ user: { id: user.id, email: user.email, createdAt: user.createdAt, cookieUploadedAt: user.cookieUploadedAt } });
+  res.json({ user: { id: user.id, email: user.email, name: user.name, createdAt: user.createdAt, cookieUploadedAt: user.cookieUploadedAt } });
 };
 
 // Exchanges the HttpOnly refresh cookie for a fresh access token, rotating
@@ -139,10 +156,10 @@ export const refresh = async (req: Request, res: Response) => {
     return res.status(401).json({ error: 'Invalid or expired refresh token' });
   }
 
-  setRefreshCookie(res, result.refreshToken);
+  setRefreshCookie(req, res, result.refreshToken);
   const token = createAuthToken(result.user);
   void recordAuthEvent(req, 'TOKEN_REFRESH', result.user.email, result.user.id);
-  res.json({ token, user: { id: result.user.id, email: result.user.email, createdAt: result.user.createdAt } });
+  res.json({ token, user: { id: result.user.id, email: result.user.email, name: result.user.name, createdAt: result.user.createdAt } });
 };
 
 export const logout = async (req: Request, res: Response) => {
@@ -207,5 +224,49 @@ export const uploadCookies = async (req: Request, res: Response) => {
     res.json({ status: 'ok', message: 'Cookies uploaded successfully' });
   } catch (error: any) {
     res.status(400).json({ error: error.message || 'Cookie upload failed' });
+  }
+};
+
+const handleProfileError = (err: any, res: Response, fallback: string) => {
+  if (err instanceof ProfileError) {
+    res.status(err.status).json({ error: err.message });
+    return;
+  }
+  console.error(fallback, err);
+  res.status(500).json({ error: fallback });
+};
+
+export const updateProfileHandler = async (req: Request, res: Response) => {
+  const authorization = req.headers.authorization;
+  if (!authorization?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization token' });
+  }
+  const payload = verifyAuthToken(authorization.slice(7));
+  if (!payload) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+  try {
+    const user = await updateUserName(payload.sub, req.body?.name);
+    res.json({ id: user.id, email: user.email, name: user.name, createdAt: user.createdAt });
+  } catch (err) {
+    handleProfileError(err, res, 'Failed to update profile');
+  }
+};
+
+export const changePasswordHandler = async (req: Request, res: Response) => {
+  const authorization = req.headers.authorization;
+  if (!authorization?.startsWith('Bearer ')) {
+    return res.status(401).json({ error: 'Missing authorization token' });
+  }
+  const payload = verifyAuthToken(authorization.slice(7));
+  if (!payload) {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
+  try {
+    await changeUserPassword(payload.sub, req.body?.currentPassword, req.body?.newPassword);
+    void recordAuthEvent(req, 'PASSWORD_CHANGE', payload.email, payload.sub);
+    res.json({ status: 'ok' });
+  } catch (err) {
+    handleProfileError(err, res, 'Failed to change password');
   }
 };

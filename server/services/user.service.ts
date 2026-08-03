@@ -6,7 +6,19 @@ import { prisma } from '../lib/prisma';
 import { createWorkspaceForUserTx } from './workspace.service';
 
 const cookiesDir = path.join(process.cwd(), 'server', 'data', 'cookies');
-const jwtSecret = process.env.JWT_SECRET || 'mediahub-local-secret';
+// Phase B.6 - CRITICAL FIX: the previous fallback was a hardcoded string
+// ('mediahub-local-secret') visible in source. Live-verified during this
+// audit: with JWT_SECRET unset, a token forged offline using that exact
+// string was accepted by /api/auth/whoami as a fully valid session for a
+// real user - a complete authentication bypass requiring no credentials,
+// exploitable by anyone who has read this file. A random-per-process
+// fallback preserves the original intent (never hard-fail startup just
+// because JWT_SECRET is unset - see startup-validation.ts) while making
+// that fallback unpredictable instead of a known constant. The tradeoff -
+// every restart invalidates existing sessions when running without a real
+// JWT_SECRET - only affects the exact deployments the startup warning
+// already tells to set one before real production use.
+const jwtSecret = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
 const BCRYPT_ROUNDS = 12;
 const REFRESH_TOKEN_BYTES = 48;
 
@@ -165,6 +177,48 @@ export const revokeRefreshToken = async (rawToken: string): Promise<void> => {
 export const revokeAllRefreshTokensForUser = async (userId: string): Promise<number> => {
   const result = await prisma.refreshToken.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
   return result.count;
+};
+
+// ---------------------------------------------------------------------------
+// Profile - self-service account management (display name, password change).
+// ---------------------------------------------------------------------------
+
+export class ProfileError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+  }
+}
+
+const NAME_MAX = 100;
+
+export const updateUserName = async (userId: string, name: unknown) => {
+  const trimmed = typeof name === 'string' ? name.trim() : '';
+  if (!trimmed) throw new ProfileError('Name is required', 400);
+  if (trimmed.length > NAME_MAX) throw new ProfileError(`Name must be ${NAME_MAX} characters or fewer`, 400);
+  return prisma.user.update({ where: { id: userId }, data: { name: trimmed } });
+};
+
+// Requires the current password (not just an authenticated session) before
+// accepting a new one - the standard defense against a stolen/left-open
+// session being used to lock the real owner out by changing their password.
+export const changeUserPassword = async (userId: string, currentPassword: string, newPassword: string) => {
+  if (typeof currentPassword !== 'string' || !currentPassword) {
+    throw new ProfileError('Current password is required', 400);
+  }
+  if (typeof newPassword !== 'string' || newPassword.length < 8) {
+    throw new ProfileError('New password must be at least 8 characters', 400);
+  }
+
+  const user = await findUserById(userId);
+  if (!user) throw new ProfileError('User not found', 404);
+
+  const valid = user.salt
+    ? verifyLegacyPbkdf2(currentPassword, user.salt, user.passwordHash)
+    : await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!valid) throw new ProfileError('Current password is incorrect', 401);
+
+  const passwordHash = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+  await prisma.user.update({ where: { id: userId }, data: { passwordHash, salt: null } });
 };
 
 export const setUserCookies = async (userId: string, rawCookieData: string) => {

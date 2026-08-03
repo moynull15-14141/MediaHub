@@ -3,7 +3,7 @@ import { getApiBase } from '@/src/lib/api';
 
 interface AuthState {
   token: string | null;
-  user: { id: string; email: string; createdAt: string; cookieUploadedAt?: string | null } | null;
+  user: { id: string; email: string; name?: string | null; createdAt: string; cookieUploadedAt?: string | null } | null;
 }
 
 interface AuthContextValue extends AuthState {

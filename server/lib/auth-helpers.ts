@@ -39,14 +39,24 @@ export const getRequestOwner = (req: Request, res: Response): RequestOwner => {
   let anonId = parseCookies(req)[ANON_COOKIE_NAME];
   if (!anonId) {
     anonId = crypto.randomUUID();
+    // secure/sameSite derived from the real connection (req.secure, reflects
+    // X-Forwarded-Proto once trust proxy is set - see security.middleware.ts)
+    // rather than hardcoded. Browsers unconditionally refuse to store a
+    // Secure cookie over a plain http:// origin - the previous "browsers
+    // treat http://localhost as secure too" assumption only holds for the
+    // literal hostname localhost/127.0.0.1 in some browsers, not for a LAN IP,
+    // a custom local domain, or a self-hosted deployment without TLS in
+    // front, so this cookie silently never got set (new visitors got a fresh
+    // anonId - and lost their history - on every single request) in exactly
+    // those cases. 'none' + secure is still used whenever the connection
+    // really is HTTPS, which is what a cross-origin frontend/backend split
+    // (Vercel + Render, etc) actually requires.
+    const secure = req.secure;
     res.cookie(ANON_COOKIE_NAME, anonId, {
       maxAge: ANON_COOKIE_MAX_AGE_MS,
       httpOnly: true,
-      // 'none' + secure is required so the cookie survives cross-site requests
-      // when the frontend (e.g. Vercel) and backend (e.g. Render) are on
-      // different origins; browsers treat http://localhost as secure too.
-      sameSite: 'none',
-      secure: true,
+      sameSite: secure ? 'none' : 'lax',
+      secure,
     });
   }
 
