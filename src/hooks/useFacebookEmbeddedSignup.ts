@@ -103,7 +103,13 @@ export function useFacebookEmbeddedSignup() {
         window.addEventListener('message', messageListener);
 
         window.FB.login(
-          async (response: any) => {
+          // Must be a plain (non-async) function - the FB SDK does its own
+          // runtime type check on this callback and throws "Expression is of
+          // type asyncfunction, not function" if handed an async function,
+          // which aborted every connect attempt before the popup could even
+          // report back. The async work below runs via .then()/.catch()
+          // instead of await.
+          (response: any) => {
             const code = response?.authResponse?.code;
             if (sessionOutcome === 'CANCEL') {
               reject(new Error('WhatsApp connection was cancelled'));
@@ -117,21 +123,18 @@ export function useFacebookEmbeddedSignup() {
               reject(new Error('Facebook did not return a WhatsApp Business Account/Phone Number selection'));
               return;
             }
-            try {
-              const account = await whatsappFetch<EmbeddedSignupResult>(token, '/account/meta/callback', {
-                method: 'POST',
-                body: JSON.stringify({
-                  code,
-                  state: publicConfig.state,
-                  wabaId: sessionData.wabaId,
-                  phoneNumberId: sessionData.phoneNumberId,
-                  businessId: sessionData.businessId,
-                }),
-              });
-              resolve(account);
-            } catch (err: any) {
-              reject(err);
-            }
+            whatsappFetch<EmbeddedSignupResult>(token, '/account/meta/callback', {
+              method: 'POST',
+              body: JSON.stringify({
+                code,
+                state: publicConfig.state,
+                wabaId: sessionData.wabaId,
+                phoneNumberId: sessionData.phoneNumberId,
+                businessId: sessionData.businessId,
+              }),
+            })
+              .then(resolve)
+              .catch(reject);
           },
           {
             config_id: publicConfig.configId,

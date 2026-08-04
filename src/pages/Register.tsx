@@ -64,17 +64,17 @@ export default function Register() {
       <form onSubmit={handleSubmit} className="space-y-4">
         <label className="block space-y-2 text-sm text-[var(--text-secondary)]">
           Email address
-          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" required />
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoComplete="email" required />
         </label>
 
         <label className="block space-y-2 text-sm text-[var(--text-secondary)]">
           Password
-          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Create a password" required />
+          <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Create a password" autoComplete="new-password" required />
         </label>
 
         <label className="block space-y-2 text-sm text-[var(--text-secondary)]">
           Confirm password
-          <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm password" required />
+          <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Confirm password" autoComplete="new-password" required />
         </label>
 
         <button type="submit" disabled={isLoading} className="w-full rounded-2xl button-primary px-5 py-3 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-60">
