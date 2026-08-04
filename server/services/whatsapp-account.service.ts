@@ -36,6 +36,7 @@ export const qualityToHealth = (qualityRating: string | null): 'HEALTHY' | 'WARN
 
 export const toPublicAccount = (account: any) => ({
   id: account.id,
+  userId: account.userId,
   phoneNumberId: account.phoneNumberId,
   wabaId: account.wabaId,
   displayPhoneNumber: account.displayPhoneNumber,

@@ -53,6 +53,7 @@ interface WhatsappAccount {
   lastFailedValidation: string | null;
   validationFailureReason: string | null;
   // Phase B.4 - Webhook Automation & Delivery Reliability
+  webhookVerified: boolean;
   webhookVerifiedAt: string | null;
   webhookVerificationError: string | null;
   webhookSubscriptionError: string | null;
